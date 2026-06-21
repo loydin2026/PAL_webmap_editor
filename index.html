@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>仙剑奇侠传一代 地图编辑器（网页版）</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 顶部工具栏 -->
+        <div id="toolbar">
+            <div class="toolbar-group">
+                <button id="btn-new" title="新建">📄</button>
+                <button id="btn-open" title="打开地图">📂</button>
+                <button id="btn-save" title="保存">💾</button>
+                <input type="file" id="file-input" accept="*" style="display:none">
+                <button id="btn-undo" title="撤销 (Ctrl+Z)">↩️ 撤销</button>
+                <button id="btn-redo" title="重做 (Ctrl+Y / Ctrl+Shift+Z)">↪️ 重做</button>
+            </div>
+            <div class="toolbar-separator"></div>
+            <div class="toolbar-group">
+                <button id="btn-select" class="tool-btn active" data-tool="select" title="选择">🔍</button>
+                <button id="btn-pen" class="tool-btn" data-tool="pen" title="画笔">✏️</button>
+                <button id="btn-template" class="tool-btn" data-tool="template" title="模板">📋</button>
+                <button id="btn-erase" class="tool-btn" data-tool="erase" title="擦除">🧹</button>
+                <button id="btn-barrier" class="tool-btn" data-tool="barrier" title="障碍">🚧</button>
+            </div>
+            <div class="toolbar-separator"></div>
+            <div class="toolbar-group">
+                <button id="btn-layer0" class="layer-btn active" data-layer="0" title="编辑第0层">L0</button>
+                <button id="btn-layer1" class="layer-btn" data-layer="1" title="编辑第1层">L1</button>
+            </div>
+            <div class="toolbar-separator"></div>
+            <div class="toolbar-group">
+                <button id="btn-view-barrier" class="toggle-btn" title="显示障碍">🚧 障碍</button>
+                <button id="btn-view-object" class="toggle-btn" title="显示人物对象">🧍 对象</button>
+            </div>
+        </div>
+
+        <!-- 主工作区 -->
+        <div id="workspace">
+            <!-- 左侧面板（抽屉式） -->
+            <div id="left-panel">
+                <!-- 抽屉1：地图选择 -->
+                <div class="drawer" data-drawer="map">
+                    <div class="drawer-header">
+                        <span class="drawer-icon">📂</span>
+                        <span>地图选择</span>
+                        <span class="drawer-toggle">▼</span>
+                    </div>
+                    <div class="drawer-content">
+                        <div class="panel-select">
+                            <label>地图:</label>
+                            <select id="map-select"></select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 抽屉2：图块选择 -->
+                <div class="drawer" data-drawer="tile">
+                    <div class="drawer-header">
+                        <span class="drawer-icon">🧩</span>
+                        <span>图块选择</span>
+                        <span class="drawer-toggle">▼</span>
+                    </div>
+                    <div class="drawer-content">
+                        <div class="panel-select">
+                            <label>图组:</label>
+                            <select id="gop-select"></select>
+                        </div>
+                        <div id="tile-grid"></div>
+                        <div id="tile-info">选中: <span id="selected-tile-id">-1</span></div>
+                    </div>
+                </div>
+
+                <!-- 抽屉3：模板选择 -->
+                <div class="drawer" data-drawer="template">
+                    <div class="drawer-header">
+                        <span class="drawer-icon">📋</span>
+                        <span>模板选择</span>
+                        <span class="drawer-toggle">▼</span>
+                    </div>
+                    <div class="drawer-content">
+                        <div id="template-list"></div>
+                        <div class="template-actions">
+                            <button id="btn-new-template">➕ 新建模板</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 中间地图编辑区 -->
+            <div id="map-container">
+                <canvas id="map-canvas"></canvas>
+                <div id="map-overlay">
+                    <div id="zoom-controls">
+                        <button id="btn-zoom-in">+</button>
+                        <span id="zoom-level">100%</span>
+                        <button id="btn-zoom-out">-</button>
+                    </div>
+                    <div class="layer-view-controls">
+                        <button id="btn-view-l0" class="toggle-btn active" title="显示L0">👁️ L0</button>
+                        <button id="btn-view-l1" class="toggle-btn active" title="显示L1">👁️ L1</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧信息面板 -->
+            <div id="info-panel">
+                <div class="panel-section">
+                    <div class="panel-header">Tile 属性</div>
+                    <div class="attr-row">
+                        <label>坐标:</label>
+                        <span id="attr-xy">-1, -1</span>
+                    </div>
+                    <div class="attr-row">
+                        <label>Layer0 图像:</label>
+                        <input type="number" id="attr-image0" min="0" max="511">
+                    </div>
+                    <div class="attr-row">
+                        <label>Layer0 高度:</label>
+                        <input type="number" id="attr-height0" min="0" max="15">
+                    </div>
+                    <div class="attr-row">
+                        <label>Layer1 图像:</label>
+                        <input type="number" id="attr-image1" min="0" max="511">
+                    </div>
+                    <div class="attr-row">
+                        <label>Layer1 高度:</label>
+                        <input type="number" id="attr-height1" min="0" max="15">
+                    </div>
+                    <div class="attr-row">
+                        <label>障碍:</label>
+                        <input type="checkbox" id="attr-barrier">
+                    </div>
+                    <button id="btn-apply-attr">应用属性</button>
+                </div>
+
+                <div class="panel-section">
+                    <div class="panel-header">小地图</div>
+                    <canvas id="minimap-canvas" width="128" height="128"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部状态栏 -->
+        <div id="status-bar">
+            <span id="status-msg">就绪</span>
+            <span id="status-pos">X: 0, Y: 0</span>
+            <span id="status-camera">Camera: 0, 0</span>
+            <span id="status-map">未加载地图</span>
+        </div>
+    </div>
+
+    <!-- 模板编辑器模态框 -->
+    <div id="template-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🎨 模板编辑器</h3>
+                <button id="btn-close-template" class="modal-close">×</button>
+            </div>
+            <div class="modal-toolbar">
+                <button id="t-btn-pen" class="t-tool-btn active" data-tmode="pen">✏️ 画笔</button>
+                <button id="t-btn-erase" class="t-tool-btn" data-tmode="erase">🧹 擦除</button>
+                <button id="t-btn-barrier" class="t-tool-btn" data-tmode="barrier">🚧 障碍</button>
+                <div class="toolbar-separator"></div>
+                <button id="t-btn-layer0" class="t-layer-btn active" data-tlayer="0">L0</button>
+                <button id="t-btn-layer1" class="t-layer-btn" data-tlayer="1">L1</button>
+                <div class="toolbar-separator"></div>
+                <button id="t-btn-undo">↩️ 撤销</button>
+                <button id="t-btn-redo">↪️ 重做</button>
+                <div class="toolbar-separator"></div>
+                <input type="text" id="template-name" placeholder="模板名称" value="">
+                <button id="t-btn-save">💾 保存</button>
+            </div>
+            <div class="modal-body">
+                <div class="template-canvas-wrap">
+                    <canvas id="template-canvas"></canvas>
+                </div>
+                <div class="template-tile-panel">
+                    <div class="template-tile-label">图块选择</div>
+                    <div id="template-tile-grid" class="template-tile-grid"></div>
+                    <div class="template-tile-info">当前: <span id="template-cur-tile">-1</span></div>
+                </div>
+                <div class="template-info">
+                    <span>选中图块: <span id="template-sel-tile">-1</span></span>
+                    <span>网格范围: <span id="template-grid-size">2×2</span></span>
+                    <span class="template-hint">💡 左键绘制 · 右键删除 · 外圈可自动扩展</span>
+                    <div class="layer-view-controls">
+                        <button id="t-btn-view-l0" class="toggle-btn active" title="显示L0">👁️ L0</button>
+                        <button id="t-btn-view-l1" class="toggle-btn active" title="显示L1">👁️ L1</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 加载顺序 -->
+    <script src="js/palette.js"></script>
+    <script src="js/gop-loader.js"></script>
+    <script src="js/map.js"></script>
+    <script src="js/renderer.js"></script>
+    <script src="js/editor.js"></script>
+    <script src="js/template-editor.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
