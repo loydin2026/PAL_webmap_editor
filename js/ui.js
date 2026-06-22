@@ -100,7 +100,6 @@ const UI = (function () {
     if (mapCache[name]) {
       MapModule.loadMap(mapCache[name]);
       isModified = false; mapFileName = name;
-      Editor.clearUndoRedo();
       updateStatus('已切换地图: ' + name);
       updateMapStatus();
       Renderer.renderMiniMap(miniTiles);
@@ -120,7 +119,6 @@ const UI = (function () {
       mapCache[name] = buffer;
       MapModule.loadMap(buffer);
       isModified = false; mapFileName = name;
-      Editor.clearUndoRedo();
       updateStatus('地图已加载: ' + name);
       updateMapStatus();
       Renderer.renderMiniMap(miniTiles);
@@ -184,15 +182,21 @@ const UI = (function () {
       const btn = document.getElementById('btn-view-l0');
       btn.classList.toggle('active');
       Editor.setShowL0(btn.classList.contains('active'));
-      const sel = Editor.getSelTile();
-      if (sel.x >= 0 && sel.y >= 0) updatePropertyPanel(sel.x, sel.y);
     });
     document.getElementById('btn-view-l1').addEventListener('click', () => {
       const btn = document.getElementById('btn-view-l1');
       btn.classList.toggle('active');
       Editor.setShowL1(btn.classList.contains('active'));
-      const sel = Editor.getSelTile();
-      if (sel.x >= 0 && sel.y >= 0) updatePropertyPanel(sel.x, sel.y);
+    });
+    document.getElementById('btn-clear-template').addEventListener('click', () => {
+      TemplateEditor.selectTemplate(-1);
+      refreshTemplateList();
+      updateStatus('模板已清除');
+    });
+    document.getElementById('btn-ai-paster').addEventListener('click', () => {
+      const btn = document.getElementById('btn-ai-paster');
+      btn.classList.toggle('active');
+      Editor.setAITemplatePaster(btn.classList.contains('active'));
     });
     document.getElementById('btn-zoom-in').addEventListener('click', () => {
       Editor.setZoom(Editor.getZoom() + 0.25); updateZoomDisplay();
@@ -200,18 +204,9 @@ const UI = (function () {
     document.getElementById('btn-zoom-out').addEventListener('click', () => {
       Editor.setZoom(Editor.getZoom() - 0.25); updateZoomDisplay();
     });
-    document.getElementById('btn-undo').addEventListener('click', () => {
-      if (Editor.undo()) { updateStatus('已撤销'); isModified = true; Renderer.renderMiniMap(miniTiles); }
-      else { updateStatus('没有可撤销的操作'); }
-    });
-    document.getElementById('btn-redo').addEventListener('click', () => {
-      if (Editor.redo()) { updateStatus('已重做'); isModified = true; Renderer.renderMiniMap(miniTiles); }
-      else { updateStatus('没有可重做的操作'); }
-    });
     document.getElementById('btn-new').addEventListener('click', () => {
       if (isModified && !confirm('地图未保存，确定新建吗？')) return;
       MapModule.newMap(); isModified = false; mapFileName = '';
-      Editor.clearUndoRedo();
       const mapSelect = document.getElementById('map-select');
       if (mapSelect) mapSelect.value = '';
       updateStatus('新建空白地图'); updateMapStatus();
@@ -223,25 +218,6 @@ const UI = (function () {
     document.getElementById('btn-save').addEventListener('click', saveMapFile);
     document.getElementById('btn-new-template').addEventListener('click', () => {
       TemplateEditor.open();
-    });
-
-    // 键盘快捷键
-    document.addEventListener('keydown', (e) => {
-      if (e.ctrlKey && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) {
-          if (Editor.redo()) { updateStatus('已重做'); isModified = true; Renderer.renderMiniMap(miniTiles); }
-          else { updateStatus('没有可重做的操作'); }
-        } else {
-          if (Editor.undo()) { updateStatus('已撤销'); isModified = true; Renderer.renderMiniMap(miniTiles); }
-          else { updateStatus('没有可撤销的操作'); }
-        }
-      }
-      if (e.ctrlKey && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        if (Editor.redo()) { updateStatus('已重做'); isModified = true; Renderer.renderMiniMap(miniTiles); }
-        else { updateStatus('没有可重做的操作'); }
-      }
     });
   }
 
@@ -272,7 +248,6 @@ const UI = (function () {
           mapCache[file.name] = buffer;
           MapModule.loadMap(buffer);
           isModified = false; mapFileName = file.name;
-          Editor.clearUndoRedo();
           updateStatus('地图已加载: ' + file.name); updateMapStatus();
           Renderer.renderMiniMap(miniTiles);
           const num = name.match(/(\d+)/);
@@ -307,18 +282,10 @@ const UI = (function () {
       } else if (Editor.getTool() === Editor.TOOLS.TEMPLATE) {
         const tpl = TemplateEditor.getSelected();
         if (tpl) {
-          Editor.pushUndo();
-          const baseParity = (tpl.baseParity !== undefined ? tpl.baseParity : 0) & 1;
-          const destParity = tile.x & 1;
           // 放置模板
           for (const t of tpl.tiles) {
-            let tx = tile.x + t.x;
-            let ty = tile.y + t.y;
-            if (baseParity !== destParity) {
-              if ((t.x & 1) === baseParity) {
-                ty -= 1;
-              }
-            }
+            const tx = tile.x + t.x;
+            const ty = tile.y + t.y;
             if (!MapModule.assert(tx, ty)) continue;
             MapModule.setTile(tx, ty, 0, t.layer0);
             MapModule.setTile(tx, ty, 1, t.layer1);
@@ -328,7 +295,6 @@ const UI = (function () {
           updateStatus('模板已放置');
         }
       } else {
-        Editor.pushUndo();
         if (Editor.applyEdit(tile.x, tile.y)) isModified = true;
       }
       updatePropertyPanel(tile.x, tile.y);
@@ -375,8 +341,8 @@ const UI = (function () {
       }
     });
 
-    canvas.addEventListener('mouseup', () => { Editor.setIsMouseDown(false); Editor.setIsDragging(false); Editor.clearUndoPushed(); });
-    canvas.addEventListener('mouseleave', () => { Editor.setIsMouseDown(false); Editor.setIsDragging(false); Editor.clearUndoPushed(); Editor.setMouseTile(-1, -1); previewTemplate = null; });
+    canvas.addEventListener('mouseup', () => { Editor.setIsMouseDown(false); Editor.setIsDragging(false); });
+    canvas.addEventListener('mouseleave', () => { Editor.setIsMouseDown(false); Editor.setIsDragging(false); Editor.setMouseTile(-1, -1); previewTemplate = null; });
     canvas.addEventListener('wheel', (e) => { e.preventDefault(); Editor.setZoom(Editor.getZoom() + (e.deltaY > 0 ? -0.25 : 0.25)); updateZoomDisplay(); }, { passive: false });
     canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); const tile = Editor.screenToTile(e.clientX, e.clientY); Editor.setSelTile(tile.x, tile.y); updatePropertyPanel(tile.x, tile.y); });
   }
@@ -385,15 +351,10 @@ const UI = (function () {
     document.getElementById('btn-apply-attr').addEventListener('click', () => {
       const sel = Editor.getSelTile();
       if (!MapModule.assert(sel.x, sel.y)) return;
-      Editor.pushUndo();
-      if (Editor.getShowL0()) {
-        MapModule.setTileImage(sel.x, sel.y, 0, parseInt(document.getElementById('attr-image0').value) || 0);
-        MapModule.setTileHeight(sel.x, sel.y, 0, parseInt(document.getElementById('attr-height0').value) || 0);
-      }
-      if (Editor.getShowL1()) {
-        MapModule.setTileImage(sel.x, sel.y, 1, parseInt(document.getElementById('attr-image1').value) || 0);
-        MapModule.setTileHeight(sel.x, sel.y, 1, parseInt(document.getElementById('attr-height1').value) || 0);
-      }
+      MapModule.setTileImage(sel.x, sel.y, 0, parseInt(document.getElementById('attr-image0').value) || 0);
+      MapModule.setTileImage(sel.x, sel.y, 1, parseInt(document.getElementById('attr-image1').value) || 0);
+      MapModule.setTileHeight(sel.x, sel.y, 0, parseInt(document.getElementById('attr-height0').value) || 0);
+      MapModule.setTileHeight(sel.x, sel.y, 1, parseInt(document.getElementById('attr-height1').value) || 0);
       MapModule.setTileBarrierValue(sel.x, sel.y, document.getElementById('attr-barrier').checked);
       isModified = true; updateStatus('属性已应用'); Renderer.renderMiniMap(miniTiles);
     });
@@ -500,21 +461,11 @@ const UI = (function () {
   function updatePropertyPanel(x, y) {
     if (!MapModule.assert(x, y)) return;
     document.getElementById('attr-xy').textContent = x + ', ' + y;
-
-    const showL0 = Editor.getShowL0();
-    const showL1 = Editor.getShowL1();
-
     document.getElementById('attr-image0').value = MapModule.getTileImage(x, y, 0);
     document.getElementById('attr-image1').value = MapModule.getTileImage(x, y, 1);
     document.getElementById('attr-height0').value = MapModule.getTileHeight(x, y, 0);
     document.getElementById('attr-height1').value = MapModule.getTileHeight(x, y, 1);
     document.getElementById('attr-barrier').checked = MapModule.getTileBarrier(x, y);
-
-    // 根据图层显示状态控制属性行可见性
-    document.getElementById('attr-image0').closest('.attr-row').style.display = showL0 ? '' : 'none';
-    document.getElementById('attr-image1').closest('.attr-row').style.display = showL1 ? '' : 'none';
-    document.getElementById('attr-height0').closest('.attr-row').style.display = showL0 ? '' : 'none';
-    document.getElementById('attr-height1').closest('.attr-row').style.display = showL1 ? '' : 'none';
   }
 
   function saveMapFile() {

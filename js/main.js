@@ -119,7 +119,6 @@ const App = (function () {
     if (tiles) {
       Renderer.renderMap(
         cam.x, cam.y,
-        Editor.getZoom(),
         tiles,
         Editor.getShowL0(),
         Editor.getShowL1(),

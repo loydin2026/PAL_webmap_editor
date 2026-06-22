@@ -15,8 +15,6 @@
                 <button id="btn-open" title="打开地图">📂</button>
                 <button id="btn-save" title="保存">💾</button>
                 <input type="file" id="file-input" accept="*" style="display:none">
-                <button id="btn-undo" title="撤销 (Ctrl+Z)">↩️ 撤销</button>
-                <button id="btn-redo" title="重做 (Ctrl+Y / Ctrl+Shift+Z)">↪️ 重做</button>
             </div>
             <div class="toolbar-separator"></div>
             <div class="toolbar-group">
@@ -35,6 +33,11 @@
             <div class="toolbar-group">
                 <button id="btn-view-barrier" class="toggle-btn" title="显示障碍">🚧 障碍</button>
                 <button id="btn-view-object" class="toggle-btn" title="显示人物对象">🧍 对象</button>
+            </div>
+            <div class="toolbar-separator"></div>
+            <div class="toolbar-group">
+                <button id="btn-clear-template" title="清除模板">🗑️ 清除</button>
+                <button id="btn-ai-paster" class="toggle-btn active" title="智能粘贴">🤖 AI</button>
             </div>
         </div>
 
@@ -119,12 +122,12 @@
                         <input type="number" id="attr-image0" min="0" max="511">
                     </div>
                     <div class="attr-row">
-                        <label>Layer0 高度:</label>
-                        <input type="number" id="attr-height0" min="0" max="15">
-                    </div>
-                    <div class="attr-row">
                         <label>Layer1 图像:</label>
                         <input type="number" id="attr-image1" min="0" max="511">
+                    </div>
+                    <div class="attr-row">
+                        <label>Layer0 高度:</label>
+                        <input type="number" id="attr-height0" min="0" max="15">
                     </div>
                     <div class="attr-row">
                         <label>Layer1 高度:</label>

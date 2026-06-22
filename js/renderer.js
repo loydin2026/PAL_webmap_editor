@@ -41,15 +41,13 @@ const Renderer = (function () {
   }
 
   // 绘制一个图块（支持 ImageData 和 Image/Canvas 两种类型）
-  function drawTileImage(ctx, x, y, source, zoom) {
+  function drawTileImage(ctx, x, y, source) {
     if (!source) return;
-    zoom = zoom || 1;
-    let temp;
     if (source instanceof HTMLImageElement || source instanceof HTMLCanvasElement) {
-      temp = source;
+      ctx.drawImage(source, x, y);
     } else {
       // ImageData：使用临时 Canvas 缓存
-      temp = source._tempCanvas;
+      let temp = source._tempCanvas;
       if (!temp) {
         temp = document.createElement('canvas');
         temp.width = source.width;
@@ -59,10 +57,8 @@ const Renderer = (function () {
         tctx.putImageData(source, 0, 0);
         source._tempCanvas = temp;
       }
+      ctx.drawImage(temp, x, y);
     }
-    const w = (temp.width || temp.naturalWidth || 64) * zoom;
-    const h = (temp.height || temp.naturalHeight || 30) * zoom;
-    ctx.drawImage(temp, x, y, w, h);
   }
 
   // 绘制地图
@@ -76,7 +72,7 @@ const Renderer = (function () {
   // barrierImg: 障碍标记的 ImageData
   // mouseImg: 鼠标悬停标记的 ImageData
   // selImg: 选中标记的 ImageData
-  function renderMap(cameraX, cameraY, zoom, tiles, showL0, showL1, showBarrier, showObject, objectImg,
+  function renderMap(cameraX, cameraY, tiles, showL0, showL1, showBarrier, showObject, objectImg,
                      mouseTile, selTile, barrierImg, mouseImg, selImg,
                      previewTemplate, previewPos) {
     const ctx = backCtx;
@@ -87,9 +83,9 @@ const Renderer = (function () {
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, cw, ch);
 
-    // 计算可见范围（根据缩放调整）
-    const viewW = Math.ceil(cw / zoom / 32) + 4;
-    const viewH = Math.ceil(ch / zoom / 32) + 4;
+    // 计算可见范围（根据容器尺寸动态计算）
+    const viewW = Math.ceil(cw / 32) + 4;
+    const viewH = Math.ceil(ch / 32) + 4;
 
     // 从 camera 位置开始绘制，先 y 后 x（同原代码）
     for (let ly = 0; ly < viewH; ly++) {
@@ -101,14 +97,14 @@ const Renderer = (function () {
         const px = MapModule.tileToPixel(tx, ty).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
         const py = MapModule.tileToPixel(tx, ty).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
 
-        // 只绘制在视口内的（使用缩放后的坐标判断）
-        if (px * zoom + TILE_W * zoom < 0 || py * zoom + TILE_H * zoom < 0 || px * zoom >= cw || py * zoom >= ch) continue;
+        // 只绘制在视口内的
+        if (px + TILE_W < 0 || py + TILE_H < 0 || px >= cw || py >= ch) continue;
 
         // Layer0
         if (showL0) {
           const img0 = MapModule.getTileImage(tx, ty, 0);
           if (img0 >= 0 && img0 < tiles.length) {
-            drawTileImage(ctx, px * zoom, py * zoom, tiles[img0], zoom);
+            drawTileImage(ctx, px, py, tiles[img0]);
           }
         }
 
@@ -116,7 +112,7 @@ const Renderer = (function () {
         if (showL1) {
           const img1 = MapModule.getTileImage(tx, ty, 1);
           if (img1 > 0 && img1 - 1 < tiles.length) {
-            drawTileImage(ctx, px * zoom, py * zoom, tiles[img1 - 1], zoom);
+            drawTileImage(ctx, px, py, tiles[img1 - 1]);
           }
         }
       }
@@ -127,7 +123,7 @@ const Renderer = (function () {
       const px = MapModule.tileToPixel(selTile.x, selTile.y).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
       const py = MapModule.tileToPixel(selTile.x, selTile.y).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H - (110 - 32);
       if (objectImg) {
-        drawTileImage(ctx, px * zoom, py * zoom, objectImg, zoom);
+        drawTileImage(ctx, px, py, objectImg);
       }
     }
 
@@ -142,7 +138,7 @@ const Renderer = (function () {
             const px = MapModule.tileToPixel(tx, ty).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
             const py = MapModule.tileToPixel(tx, ty).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
             if (barrierImg) {
-              drawTileImage(ctx, px * zoom, py * zoom, barrierImg, zoom);
+              drawTileImage(ctx, px, py, barrierImg);
             }
           }
         }
@@ -154,7 +150,7 @@ const Renderer = (function () {
       const px = MapModule.tileToPixel(mouseTile.x, mouseTile.y).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
       const py = MapModule.tileToPixel(mouseTile.x, mouseTile.y).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
       if (mouseImg) {
-        drawTileImage(ctx, px * zoom, py * zoom, mouseImg, zoom);
+        drawTileImage(ctx, px, py, mouseImg);
       }
     }
 
@@ -163,7 +159,7 @@ const Renderer = (function () {
       const px = MapModule.tileToPixel(selTile.x, selTile.y).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
       const py = MapModule.tileToPixel(selTile.x, selTile.y).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
       if (selImg) {
-        drawTileImage(ctx, px * zoom, py * zoom, selImg, zoom);
+        drawTileImage(ctx, px, py, selImg);
       }
     }
 
@@ -171,24 +167,17 @@ const Renderer = (function () {
     if (previewTemplate && previewPos && tiles) {
       ctx.save();
       ctx.globalAlpha = 0.3;
-      const baseParity = (previewTemplate.baseParity !== undefined ? previewTemplate.baseParity : 0) & 1;
-      const destParity = previewPos.x & 1;
       for (const t of previewTemplate.tiles) {
-        let tx = previewPos.x + t.x;
-        let ty = previewPos.y + t.y;
-        if (baseParity !== destParity) {
-          if ((t.x & 1) === baseParity) {
-            ty -= 1;
-          }
-        }
+        const tx = previewPos.x + t.x;
+        const ty = previewPos.y + t.y;
         if (!MapModule.assert(tx, ty)) continue;
         const px = MapModule.tileToPixel(tx, ty).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
         const py = MapModule.tileToPixel(tx, ty).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
         const img0 = MapModule.getLayerImage(t.layer0);
-        if (img0 >= 0 && img0 < tiles.length) drawTileImage(ctx, px * zoom, py * zoom, tiles[img0], zoom);
+        if (img0 >= 0 && img0 < tiles.length) drawTileImage(ctx, px, py, tiles[img0]);
         const img1 = MapModule.getLayerImage(t.layer1);
-        if (img1 > 0 && img1 - 1 < tiles.length) drawTileImage(ctx, px * zoom, py * zoom, tiles[img1 - 1], zoom);
-        if (t.barrier) drawTileImage(ctx, px * zoom, py * zoom, barrierImg, zoom);
+        if (img1 > 0 && img1 - 1 < tiles.length) drawTileImage(ctx, px, py, tiles[img1 - 1]);
+        if (t.barrier) drawTileImage(ctx, px, py, barrierImg);
       }
       ctx.restore();
     }

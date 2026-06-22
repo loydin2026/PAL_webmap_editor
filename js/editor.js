@@ -28,6 +28,7 @@ const Editor = (function () {
   let showObject = false;
   let showL0 = true;
   let showL1 = true;
+  let aiTemplatePaster = true;
 
   // 模板
   let templateTiles = []; // {x, y} 数组，相对于基点
@@ -39,53 +40,6 @@ const Editor = (function () {
   let selImg = null;
   let barrierImg = null;
   let objectImg = null;
-
-  // 撤销/重做栈
-  const MAX_HISTORY = 50;
-  let undoStack = [];
-  let redoStack = [];
-  let undoPushed = false;
-
-  function pushUndo() {
-    if (!undoPushed) {
-      const snapshot = MapModule.saveMap();
-      undoStack.push(snapshot);
-      if (undoStack.length > MAX_HISTORY) undoStack.shift();
-      redoStack = [];
-      undoPushed = true;
-    }
-  }
-
-  function undo() {
-    if (undoStack.length === 0) return false;
-    redoStack.push(MapModule.saveMap());
-    if (redoStack.length > MAX_HISTORY) redoStack.shift();
-    const buffer = undoStack.pop();
-    MapModule.loadMap(buffer);
-    return true;
-  }
-
-  function redo() {
-    if (redoStack.length === 0) return false;
-    undoStack.push(MapModule.saveMap());
-    if (undoStack.length > MAX_HISTORY) undoStack.shift();
-    const buffer = redoStack.pop();
-    MapModule.loadMap(buffer);
-    return true;
-  }
-
-  function clearUndoPushed() {
-    undoPushed = false;
-  }
-
-  function clearUndoRedo() {
-    undoStack = [];
-    redoStack = [];
-    undoPushed = false;
-  }
-
-  function canUndo() { return undoStack.length > 0; }
-  function canRedo() { return redoStack.length > 0; }
 
   function init() {
     // 加载标记图像（PNG 自带 alpha 通道，无需手动处理透明色）
@@ -109,8 +63,8 @@ const Editor = (function () {
   function screenToTile(sx, sy) {
     const mapCanvas = document.getElementById('map-canvas');
     const rect = mapCanvas.getBoundingClientRect();
-    const px = (sx - rect.left) / zoom;
-    const py = (sy - rect.top) / zoom;
+    const px = sx - rect.left;
+    const py = sy - rect.top;
 
     // 加上 camera 偏移和中心偏移
     const origin = MapModule.tileToPixel(cameraX, cameraY);
@@ -155,6 +109,8 @@ const Editor = (function () {
   function getShowL0() { return showL0; }
   function setShowL1(v) { showL1 = v; }
   function getShowL1() { return showL1; }
+  function setAITemplatePaster(v) { aiTemplatePaster = v; }
+  function getAITemplatePaster() { return aiTemplatePaster; }
 
   function setMouseTile(x, y) { mouseTileX = x; mouseTileY = y; }
   function getMouseTile() { return { x: mouseTileX, y: mouseTileY }; }
@@ -226,15 +182,20 @@ const Editor = (function () {
     if (templateTiles.length === 0) return;
     const baseX = templateBaseX;
     const baseY = templateBaseY;
-    const baseParity = baseX & 1;
-    const destParity = destX & 1;
+    const baseParity = baseX % 2;
+    const destParity = destX % 2;
 
     for (const t of templateTiles) {
       let offsetX = t.x;
       let offsetY = t.y;
 
-      if (baseParity !== destParity) {
-        if ((t.x & 1) === baseParity) {
+      // 处理奇偶行偏移（同原代码 MapEx_PasterTemplate）
+      if (baseParity === 0) {
+        if (destParity === 1 && (baseX + t.x) % 2 === 1) {
+          offsetY += 1;
+        }
+      } else {
+        if (destParity === 0 && (baseX + t.x) % 2 === 0) {
           offsetY -= 1;
         }
       }
@@ -243,12 +204,20 @@ const Editor = (function () {
       const ty = destY + offsetY;
       if (!MapModule.assert(tx, ty)) continue;
 
+      // 获取源 Tile 数据
       const srcX = baseX + t.x;
       const srcY = baseY + t.y;
       if (!MapModule.assert(srcX, srcY)) continue;
 
       const layer0 = MapModule.getTile(srcX, srcY, 0);
       const layer1 = MapModule.getTile(srcX, srcY, 1);
+
+      // AI 粘贴：跳过高度为 0 的 Layer0
+      if (aiTemplatePaster) {
+        if (MapModule.getLayerHeight(layer0) === 0) {
+          continue;
+        }
+      }
 
       MapModule.setTile(tx, ty, 0, layer0);
       MapModule.setTile(tx, ty, 1, layer1);
@@ -265,6 +234,7 @@ const Editor = (function () {
     setShowObject, getShowObject,
     setShowL0, getShowL0,
     setShowL1, getShowL1,
+    setAITemplatePaster, getAITemplatePaster,
     setMouseTile, getMouseTile,
     setSelTile, getSelTile,
     getCamera, setCamera,
@@ -275,10 +245,6 @@ const Editor = (function () {
     setLastDrag, getLastDrag,
     applyEdit,
     addToTemplate, clearTemplate, getTemplate, pasteTemplate,
-    get mouseImg() { return mouseImg; },
-    get selImg() { return selImg; },
-    get barrierImg() { return barrierImg; },
-    get objectImg() { return objectImg; },
-    pushUndo, undo, redo, clearUndoPushed, clearUndoRedo, canUndo, canRedo,
+    mouseImg, selImg, barrierImg, objectImg,
   };
 })();

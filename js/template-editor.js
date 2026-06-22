@@ -357,11 +357,11 @@ const TemplateEditor = (function() {
 
     if (editMode && editIdx >= 0 && editIdx < savedTemplates.length) {
       // 更新现有模板
-      savedTemplates[editIdx] = { name, tiles: tplTiles, w: maxX - minX + 1, h: maxY - minY + 1, baseParity: minX % 2 };
+      savedTemplates[editIdx] = { name, tiles: tplTiles, w: maxX - minX + 1, h: maxY - minY + 1 };
       selIdx = editIdx;
     } else {
       // 添加新模板
-      savedTemplates.push({ name, tiles: tplTiles, w: maxX - minX + 1, h: maxY - minY + 1, baseParity: minX % 2 });
+      savedTemplates.push({ name, tiles: tplTiles, w: maxX - minX + 1, h: maxY - minY + 1 });
       selIdx = savedTemplates.length - 1;
     }
     editMode = false; editIdx = -1;
