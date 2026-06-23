@@ -17,9 +17,9 @@
             <input type="file" id="file-input" accept="*" style="display:none">
             <button id="btn-undo" title="撤销 (Ctrl+Z)">↩️</button>
             <button id="btn-redo" title="重做 (Ctrl+Y / Ctrl+Shift+Z)">↪️</button>
-            <button id="btn-select" class="tool-btn active" data-tool="select" title="选择">🔍</button>
-            <button id="btn-pen" class="tool-btn" data-tool="pen" title="画笔">✏️</button>
-            <button id="btn-template" class="tool-btn" data-tool="template" title="模板">📋</button>
+            <button id="btn-select" class="tool-btn active" data-tool="select" title="选择">👆</button>
+            <button id="btn-pen" class="tool-btn" data-tool="pen" title="画笔">🖌️</button>
+            <button id="btn-template" class="tool-btn" data-tool="template" title="模板">🍪</button>
             <button id="btn-erase" class="tool-btn" data-tool="erase" title="擦除">🧹</button>
             <button id="btn-barrier" class="tool-btn" data-tool="barrier" title="障碍">🚧</button>
             <button id="btn-layer0" class="layer-btn active" data-layer="0" title="编辑第0层">L0</button>
@@ -74,7 +74,7 @@
                 <!-- 抽屉3：模板 -->
                 <div class="drawer" data-drawer="template">
                     <div class="drawer-header">
-                        <span class="drawer-icon">📋</span>
+                        <span class="drawer-icon">🍪</span>
                         <span>模板</span>
                         <span class="drawer-toggle">▼</span>
                     </div>
@@ -82,7 +82,7 @@
                         <div id="template-list"></div>
                         <div class="template-actions">
                             <button id="btn-new-template">➕ 新建模板</button>
-                            <button id="btn-delete-templates" disabled>删除选中</button>
+                            <button id="btn-delete-templates" disabled>❌ 删除选中</button>
                             <button id="btn-export-templates">💾 导出模板</button>
                             <button id="btn-import-templates">📂 导入模板</button>
                             <input type="file" id="template-import-input" accept=".json" style="display:none">
@@ -141,7 +141,7 @@
                         </div>
                     </div>
                     <div class="attr-row" id="attr-row-template" style="display:none">
-                        <button id="btn-create-template">📋 创建模板</button>
+                        <button id="btn-create-template">🍪 创建模板</button>
                     </div>
                     <button id="btn-apply-attr">应用属性</button>
                 </div>
@@ -149,11 +149,11 @@
                 <div class="panel-section">
                     <div class="panel-header">图层</div>
                     <div class="layer-toggle-row active" id="layer-toggle-0">
-                        <span class="layer-toggle-eye">👁️</span>
+                        <span class="layer-toggle-eye">👁️‍🗨️</span>
                         <span class="layer-toggle-name">Layer 0</span>
                     </div>
                     <div class="layer-toggle-row active" id="layer-toggle-1">
-                        <span class="layer-toggle-eye">👁️</span>
+                        <span class="layer-toggle-eye">👁️‍🗨️</span>
                         <span class="layer-toggle-name">Layer 1</span>
                     </div>
                 </div>
@@ -216,10 +216,10 @@
                     <span>范围: <span id="template-grid-size">2×2</span></span>
                     <span id="template-attr-l0">L0: ID=<span id="t-l0-id">-</span> H=<input type="number" id="t-l0-height" min="0" max="15" value="0" style="width:36px"></span>
                     <span id="template-attr-l1">L1: ID=<span id="t-l1-id">-</span> H=<input type="number" id="t-l1-height" min="0" max="15" value="0" style="width:36px"></span>
-                    <span class="template-hint" id="template-hint">💡 左键绘制 · 右键删除 · 外圈可自动扩展</span>
+                    <span class="template-hint" id="template-hint">💡左键绘制 外圈可自动扩展</span>
                     <div class="layer-view-controls">
-                        <button id="t-btn-view-l0" class="toggle-btn active" title="显示L0">👁️ L0</button>
-                        <button id="t-btn-view-l1" class="toggle-btn active" title="显示L1">👁️ L1</button>
+                        <button id="t-btn-view-l0" class="toggle-btn active" title="显示L0">👁️‍🗨️ L0</button>
+                        <button id="t-btn-view-l1" class="toggle-btn active" title="显示L1">👁️‍🗨️ L1</button>
                     </div>
                 </div>
             </div>
