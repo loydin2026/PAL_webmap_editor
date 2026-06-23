@@ -10,46 +10,33 @@
     <div id="app">
         <!-- 顶部工具栏 -->
         <div id="toolbar">
-            <div class="toolbar-group">
-                <button id="btn-new" title="新建">📄</button>
-                <button id="btn-open" title="打开地图">📂</button>
-                <button id="btn-save" title="保存">💾</button>
-                <input type="file" id="file-input" accept="*" style="display:none">
-            </div>
-            <div class="toolbar-separator"></div>
-            <div class="toolbar-group">
-                <button id="btn-select" class="tool-btn active" data-tool="select" title="选择">🔍</button>
-                <button id="btn-pen" class="tool-btn" data-tool="pen" title="画笔">✏️</button>
-                <button id="btn-template" class="tool-btn" data-tool="template" title="模板">📋</button>
-                <button id="btn-erase" class="tool-btn" data-tool="erase" title="擦除">🧹</button>
-                <button id="btn-barrier" class="tool-btn" data-tool="barrier" title="障碍">🚧</button>
-            </div>
-            <div class="toolbar-separator"></div>
-            <div class="toolbar-group">
-                <button id="btn-layer0" class="layer-btn active" data-layer="0" title="编辑第0层">L0</button>
-                <button id="btn-layer1" class="layer-btn" data-layer="1" title="编辑第1层">L1</button>
-            </div>
-            <div class="toolbar-separator"></div>
-            <div class="toolbar-group">
-                <button id="btn-view-barrier" class="toggle-btn" title="显示障碍">🚧 障碍</button>
-                <button id="btn-view-object" class="toggle-btn" title="显示人物对象">🧍 对象</button>
-            </div>
-            <div class="toolbar-separator"></div>
-            <div class="toolbar-group">
-                <button id="btn-clear-template" title="清除模板">🗑️ 清除</button>
-                <button id="btn-ai-paster" class="toggle-btn active" title="智能粘贴">🤖 AI</button>
-            </div>
+            <button id="btn-new" title="新建">📄</button>
+            <button id="btn-open" title="打开地图">📂</button>
+            <button id="btn-save" title="保存">💾</button>
+            <button id="btn-save-as" title="另存为">💾+</button>
+            <input type="file" id="file-input" accept="*" style="display:none">
+            <button id="btn-undo" title="撤销 (Ctrl+Z)">↩️</button>
+            <button id="btn-redo" title="重做 (Ctrl+Y / Ctrl+Shift+Z)">↪️</button>
+            <button id="btn-select" class="tool-btn active" data-tool="select" title="选择">🔍</button>
+            <button id="btn-pen" class="tool-btn" data-tool="pen" title="画笔">✏️</button>
+            <button id="btn-template" class="tool-btn" data-tool="template" title="模板">📋</button>
+            <button id="btn-erase" class="tool-btn" data-tool="erase" title="擦除">🧹</button>
+            <button id="btn-barrier" class="tool-btn" data-tool="barrier" title="障碍">🚧</button>
+            <button id="btn-layer0" class="layer-btn active" data-layer="0" title="编辑第0层">L0</button>
+            <button id="btn-layer1" class="layer-btn" data-layer="1" title="编辑第1层">L1</button>
+            <button id="btn-view-barrier" class="toggle-btn" title="显示障碍">🚧</button>
+            <button id="btn-view-object" class="toggle-btn" title="显示人物对象">🧍</button>
         </div>
 
         <!-- 主工作区 -->
         <div id="workspace">
             <!-- 左侧面板（抽屉式） -->
             <div id="left-panel">
-                <!-- 抽屉1：地图选择 -->
+                <!-- 抽屉1：地图 -->
                 <div class="drawer" data-drawer="map">
                     <div class="drawer-header">
                         <span class="drawer-icon">📂</span>
-                        <span>地图选择</span>
+                        <span>地图</span>
                         <span class="drawer-toggle">▼</span>
                     </div>
                     <div class="drawer-content">
@@ -60,34 +47,45 @@
                     </div>
                 </div>
 
-                <!-- 抽屉2：图块选择 -->
+                <!-- 抽屉2：图块集 -->
                 <div class="drawer" data-drawer="tile">
                     <div class="drawer-header">
                         <span class="drawer-icon">🧩</span>
-                        <span>图块选择</span>
+                        <span>图块集</span>
                         <span class="drawer-toggle">▼</span>
                     </div>
                     <div class="drawer-content">
+                        <div class="panel-select">
+                            <label>色板:</label>
+                            <select id="palette-select"></select>
+                        </div>
                         <div class="panel-select">
                             <label>图组:</label>
                             <select id="gop-select"></select>
                         </div>
                         <div id="tile-grid"></div>
                         <div id="tile-info">选中: <span id="selected-tile-id">-1</span></div>
+                        <div class="tile-actions">
+                            <button id="btn-export-gop">💾 导出 GOP</button>
+                        </div>
                     </div>
                 </div>
 
-                <!-- 抽屉3：模板选择 -->
+                <!-- 抽屉3：模板 -->
                 <div class="drawer" data-drawer="template">
                     <div class="drawer-header">
                         <span class="drawer-icon">📋</span>
-                        <span>模板选择</span>
+                        <span>模板</span>
                         <span class="drawer-toggle">▼</span>
                     </div>
                     <div class="drawer-content">
                         <div id="template-list"></div>
                         <div class="template-actions">
                             <button id="btn-new-template">➕ 新建模板</button>
+                            <button id="btn-delete-templates" disabled>删除选中</button>
+                            <button id="btn-export-templates">💾 导出模板</button>
+                            <button id="btn-import-templates">📂 导入模板</button>
+                            <input type="file" id="template-import-input" accept=".json" style="display:none">
                         </div>
                     </div>
                 </div>
@@ -98,13 +96,9 @@
                 <canvas id="map-canvas"></canvas>
                 <div id="map-overlay">
                     <div id="zoom-controls">
-                        <button id="btn-zoom-in">+</button>
+                        <button id="btn-zoom-out">−</button>
                         <span id="zoom-level">100%</span>
-                        <button id="btn-zoom-out">-</button>
-                    </div>
-                    <div class="layer-view-controls">
-                        <button id="btn-view-l0" class="toggle-btn active" title="显示L0">👁️ L0</button>
-                        <button id="btn-view-l1" class="toggle-btn active" title="显示L1">👁️ L1</button>
+                        <button id="btn-zoom-in">+</button>
                     </div>
                 </div>
             </div>
@@ -112,32 +106,56 @@
             <!-- 右侧信息面板 -->
             <div id="info-panel">
                 <div class="panel-section">
-                    <div class="panel-header">Tile 属性</div>
-                    <div class="attr-row">
-                        <label>坐标:</label>
-                        <span id="attr-xy">-1, -1</span>
+                    <div class="panel-header">属性</div>
+                    <div class="attr-group">
+                        <div class="attr-group-title">位置</div>
+                        <div class="attr-row" id="attr-row-xy">
+                            <label>坐标:</label>
+                            <span id="attr-xy">-1, -1</span>
+                        </div>
                     </div>
-                    <div class="attr-row">
-                        <label>Layer0 图像:</label>
-                        <input type="number" id="attr-image0" min="0" max="511">
+                    <div class="attr-group">
+                        <div class="attr-group-title">图层</div>
+                        <div class="attr-row attr-row-single">
+                            <label>Layer0 图像:</label>
+                            <input type="number" id="attr-image0" min="0" max="511">
+                        </div>
+                        <div class="attr-row attr-row-single">
+                            <label>Layer0 高度:</label>
+                            <input type="number" id="attr-height0" min="0" max="15">
+                        </div>
+                        <div class="attr-row attr-row-single">
+                            <label>Layer1 图像:</label>
+                            <input type="number" id="attr-image1" min="0" max="511">
+                        </div>
+                        <div class="attr-row attr-row-single">
+                            <label>Layer1 高度:</label>
+                            <input type="number" id="attr-height1" min="0" max="15">
+                        </div>
                     </div>
-                    <div class="attr-row">
-                        <label>Layer1 图像:</label>
-                        <input type="number" id="attr-image1" min="0" max="511">
+                    <div class="attr-group">
+                        <div class="attr-group-title">障碍</div>
+                        <div class="attr-row attr-row-single">
+                            <label>障碍:</label>
+                            <input type="checkbox" id="attr-barrier">
+                        </div>
                     </div>
-                    <div class="attr-row">
-                        <label>Layer0 高度:</label>
-                        <input type="number" id="attr-height0" min="0" max="15">
-                    </div>
-                    <div class="attr-row">
-                        <label>Layer1 高度:</label>
-                        <input type="number" id="attr-height1" min="0" max="15">
-                    </div>
-                    <div class="attr-row">
-                        <label>障碍:</label>
-                        <input type="checkbox" id="attr-barrier">
+                    <div class="attr-row" id="attr-row-template" style="display:none">
+                        <button id="btn-create-template">📋 创建模板</button>
                     </div>
                     <button id="btn-apply-attr">应用属性</button>
+                </div>
+
+                <div class="panel-section">
+                    <div class="panel-header">图层</div>
+                    <div class="layer-toggle-row active" id="layer-toggle-0">
+                        <span class="layer-toggle-eye">👁️</span>
+                        <span class="layer-toggle-name">Layer 0</span>
+                    </div>
+                    <div class="layer-toggle-row active" id="layer-toggle-1">
+                        <span class="layer-toggle-eye">👁️</span>
+                        <span class="layer-toggle-name">Layer 1</span>
+                    </div>
                 </div>
 
                 <div class="panel-section">
@@ -149,10 +167,16 @@
 
         <!-- 底部状态栏 -->
         <div id="status-bar">
-            <span id="status-msg">就绪</span>
-            <span id="status-pos">X: 0, Y: 0</span>
-            <span id="status-camera">Camera: 0, 0</span>
-            <span id="status-map">未加载地图</span>
+            <div class="status-left">
+                <span id="status-msg">就绪</span>
+            </div>
+            <div class="status-center">
+                <span id="status-pos">X: 0, Y: 0</span>
+                <span id="status-camera">Camera: 0, 0</span>
+            </div>
+            <div class="status-right">
+                <span id="status-map">未加载地图</span>
+            </div>
         </div>
     </div>
 
@@ -164,6 +188,7 @@
                 <button id="btn-close-template" class="modal-close">×</button>
             </div>
             <div class="modal-toolbar">
+                <button id="t-btn-select" class="t-tool-btn" data-tmode="select">🔍 选择</button>
                 <button id="t-btn-pen" class="t-tool-btn active" data-tmode="pen">✏️ 画笔</button>
                 <button id="t-btn-erase" class="t-tool-btn" data-tmode="erase">🧹 擦除</button>
                 <button id="t-btn-barrier" class="t-tool-btn" data-tmode="barrier">🚧 障碍</button>
@@ -187,9 +212,11 @@
                     <div class="template-tile-info">当前: <span id="template-cur-tile">-1</span></div>
                 </div>
                 <div class="template-info">
-                    <span>选中图块: <span id="template-sel-tile">-1</span></span>
-                    <span>网格范围: <span id="template-grid-size">2×2</span></span>
-                    <span class="template-hint">💡 左键绘制 · 右键删除 · 外圈可自动扩展</span>
+                    <span>选中: <span id="template-sel-tile">-1</span></span>
+                    <span>范围: <span id="template-grid-size">2×2</span></span>
+                    <span id="template-attr-l0">L0: ID=<span id="t-l0-id">-</span> H=<input type="number" id="t-l0-height" min="0" max="15" value="0" style="width:36px"></span>
+                    <span id="template-attr-l1">L1: ID=<span id="t-l1-id">-</span> H=<input type="number" id="t-l1-height" min="0" max="15" value="0" style="width:36px"></span>
+                    <span class="template-hint" id="template-hint">💡 左键绘制 · 右键删除 · 外圈可自动扩展</span>
                     <div class="layer-view-controls">
                         <button id="t-btn-view-l0" class="toggle-btn active" title="显示L0">👁️ L0</button>
                         <button id="t-btn-view-l1" class="toggle-btn active" title="显示L1">👁️ L1</button>

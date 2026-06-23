@@ -184,11 +184,191 @@ const GopLoader = (function () {
     });
   }
 
+  // GOP 编码器：将 ImageData 数组编码为 GOP 二进制文件
+  function encodeGOP(tiles, palette) {
+    if (!tiles || tiles.length === 0) throw new Error('没有图块可编码');
+
+    // 构建反向调色板映射 (RGB -> 索引)
+    const paletteMap = new Map();
+    for (let i = 0; i < 256; i++) {
+      const r = palette[i * 4];
+      const g = palette[i * 4 + 1];
+      const b = palette[i * 4 + 2];
+      paletteMap.set((r << 16) | (g << 8) | b, i);
+    }
+
+    const encodedTiles = [];
+    for (const tile of tiles) {
+      // 缩小到 32x15（原始 GOP 尺寸）
+      const small = shrinkImageData(tile, 2);
+      // 转换为 256 色索引
+      const indices = imageDataToIndices(small, palette, paletteMap);
+      // RLE 编码
+      const encoded = rleEncode(indices, 32, 15);
+      encodedTiles.push(encoded);
+    }
+
+    // 构建偏移表
+    const imageCount = encodedTiles.length;
+    const countPlus1 = imageCount + 1;
+    const offsetTableSize = countPlus1 * 2;
+
+    let currentOffset = offsetTableSize;
+    const offsets = [currentOffset];
+    const allData = [];
+
+    for (const encoded of encodedTiles) {
+      allData.push(encoded);
+      currentOffset += encoded.length;
+      // 确保偶数偏移
+      if (currentOffset % 2 !== 0) {
+        allData.push(new Uint8Array([0x00]));
+        currentOffset++;
+      }
+      offsets.push(currentOffset);
+    }
+
+    // 构建 imageCode
+    const imageCodeLen = offsetTableSize + allData.reduce((sum, d) => sum + d.length, 0);
+    const imageCode = new Uint8Array(imageCodeLen);
+    const dv = new DataView(imageCode.buffer);
+
+    // 写入 count_plus_1 / offsets[0]
+    dv.setUint16(0, countPlus1, true);
+
+    // 写入偏移表
+    for (let i = 0; i < countPlus1; i++) {
+      dv.setUint16(i * 2, offsets[i] / 2, true);
+    }
+
+    // 写入 tile 数据
+    let pos = offsetTableSize;
+    for (const data of allData) {
+      imageCode.set(data, pos);
+      pos += data.length;
+    }
+
+    // 构建完整文件
+    const dwLen = imageCode.length;
+    const file = new Uint8Array(4 + dwLen);
+    const fileDv = new DataView(file.buffer);
+    fileDv.setUint32(0, dwLen, true);
+    file.set(imageCode, 4);
+
+    return file.buffer;
+  }
+
+  function shrinkImageData(src, scale) {
+    const w = src.width / scale;
+    const h = src.height / scale;
+    const dst = new ImageData(w, h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const sx = x * scale;
+        const sy = y * scale;
+        const sIdx = (sy * src.width + sx) * 4;
+        const dIdx = (y * w + x) * 4;
+        dst.data[dIdx + 0] = src.data[sIdx + 0];
+        dst.data[dIdx + 1] = src.data[sIdx + 1];
+        dst.data[dIdx + 2] = src.data[sIdx + 2];
+        dst.data[dIdx + 3] = src.data[sIdx + 3];
+      }
+    }
+    return dst;
+  }
+
+  function imageDataToIndices(imgData, palette, paletteMap) {
+    const indices = new Uint8Array(imgData.width * imgData.height);
+    for (let i = 0; i < imgData.data.length; i += 4) {
+      const r = imgData.data[i];
+      const g = imgData.data[i + 1];
+      const b = imgData.data[i + 2];
+      const a = imgData.data[i + 3];
+
+      if (a === 0 || (r === 108 && g === 88 && b === 100)) {
+        indices[i / 4] = 0xFF;
+      } else {
+        const key = (r << 16) | (g << 8) | b;
+        if (paletteMap.has(key)) {
+          indices[i / 4] = paletteMap.get(key);
+        } else {
+          // 查找最接近的颜色
+          let bestDist = Infinity;
+          let bestIdx = 0xFF;
+          for (let p = 0; p < 256; p++) {
+            const pr = palette[p * 4];
+            const pg = palette[p * 4 + 1];
+            const pb = palette[p * 4 + 2];
+            const dr = r - pr, dg = g - pg, db = b - pb;
+            const dist = dr * dr + dg * dg + db * db;
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestIdx = p;
+            }
+          }
+          indices[i / 4] = bestIdx;
+        }
+      }
+    }
+    return indices;
+  }
+
+  function rleEncode(indices, width, height) {
+    const result = [];
+    // 添加 0x00000002 前缀
+    result.push(0x02, 0x00, 0x00, 0x00);
+    // 写入 width 和 height
+    result.push(width & 0xFF, (width >> 8) & 0xFF);
+    result.push(height & 0xFF, (height >> 8) & 0xFF);
+
+    let i = 0;
+    const total = width * height;
+
+    while (i < total) {
+      if (indices[i] === 0xFF) {
+        // 跳过透明像素
+        let skip = 0;
+        while (i < total && indices[i] === 0xFF && skip < width) {
+          skip++;
+          i++;
+        }
+        if (skip > 0) {
+          result.push(0x80 + skip);
+        }
+      } else {
+        // 复制非透明像素
+        let copy = 0;
+        const copyData = [];
+        while (i < total && indices[i] !== 0xFF && copy < 255) {
+          copyData.push(indices[i]);
+          copy++;
+          i++;
+        }
+
+        // 检查 copy 值是否在跳过范围（0x81-0x80+width）内
+        if (copy >= 0x81 && copy <= 0x80 + width) {
+          // 拆分为两个复制命令
+          const split = copy - 1;
+          result.push(split);
+          for (let j = 0; j < split; j++) result.push(copyData[j]);
+          result.push(1);
+          result.push(copyData[split]);
+        } else {
+          result.push(copy);
+          for (let j = 0; j < copy; j++) result.push(copyData[j]);
+        }
+      }
+    }
+
+    return new Uint8Array(result);
+  }
+
   return {
     load,
     loadFromFile,
     parseGopBuffer,
     decodeRLE,
     scaleImageData,
+    encodeGOP,
   };
 })();

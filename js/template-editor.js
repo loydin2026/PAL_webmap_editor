@@ -1,4 +1,36 @@
 const TemplateEditor = (function() {
+  // 图块数据编码/解码辅助函数
+  function imageDataToBase64(imageData) {
+    const w = imageData.width;
+    const h = imageData.height;
+    const data = new Uint8Array(imageData.data);
+    const header = new Uint8Array(4);
+    header[0] = w & 0xFF;
+    header[1] = (w >> 8) & 0xFF;
+    header[2] = h & 0xFF;
+    header[3] = (h >> 8) & 0xFF;
+    const combined = new Uint8Array(header.length + data.length);
+    combined.set(header);
+    combined.set(data, header.length);
+    let binary = '';
+    for (let i = 0; i < combined.length; i++) {
+      binary += String.fromCharCode(combined[i]);
+    }
+    return btoa(binary);
+  }
+
+  function base64ToImageData(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const w = bytes[0] | (bytes[1] << 8);
+    const h = bytes[2] | (bytes[3] << 8);
+    const data = new Uint8ClampedArray(bytes.slice(4));
+    return new ImageData(data, w, h);
+  }
+
   let isOpen = false;
   let canvas = null;
   let ctx = null;
@@ -7,6 +39,7 @@ const TemplateEditor = (function() {
   // 模板数据: key="x,y" -> {layer0, layer1, barrier}
   let data = {};
   let minX = 0, maxX = 1, minY = 0, maxY = 1;
+  let baseParity = 0; // 模板基点在地图中的奇偶性（0=偶数列, 1=奇数列）
 
   let tTool = 'pen'; // pen, erase, barrier
   let tLayer = 0;
@@ -27,12 +60,31 @@ const TemplateEditor = (function() {
   let selTileX = -1;
   let selTileY = -1;
 
+  // 模板编辑器专用的图块图像缓存，优先使用模板自带的 tileImages，避免 GOP 切换后错乱
+  let editorTileImages = null; // {id: ImageData}
+
   function init() {
     canvas = document.getElementById('template-canvas');
     ctx = canvas.getContext('2d');
-    canvas.width = 700;
-    canvas.height = 400;
     bindEvents();
+    resizeCanvas();
+    window.addEventListener('resize', () => {
+      if (isOpen) resizeCanvas();
+    });
+  }
+
+  function resizeCanvas() {
+    const wrap = canvas ? canvas.parentElement : null;
+    if (!wrap) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = wrap.clientWidth;
+    const h = wrap.clientHeight;
+    // 只在尺寸变化时重置，避免闪烁
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+      if (isOpen) render();
+    }
   }
 
   function bindEvents() {
@@ -41,6 +93,14 @@ const TemplateEditor = (function() {
         document.querySelectorAll('.t-tool-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         tTool = btn.dataset.tmode;
+        // 更新提示文本
+        const hint = document.getElementById('template-hint');
+        if (hint) {
+          if (tTool === 'select') hint.textContent = '💡 点击图块查看/编辑属性';
+          else if (tTool === 'pen') hint.textContent = '💡 左键绘制 · 右键删除 · 外圈可自动扩展';
+          else if (tTool === 'erase') hint.textContent = '💡 左键擦除当前图层 · 外圈可自动扩展';
+          else if (tTool === 'barrier') hint.textContent = '💡 左键切换障碍标记';
+        }
       });
     });
     document.querySelectorAll('.t-layer-btn').forEach(btn => {
@@ -70,6 +130,30 @@ const TemplateEditor = (function() {
       showL1 = btn.classList.contains('active');
       render();
     });
+
+    // 高度输入框编辑
+    const h0Input = document.getElementById('t-l0-height');
+    const h1Input = document.getElementById('t-l1-height');
+    if (h0Input) {
+      h0Input.addEventListener('change', () => {
+        if (selTileX < 0 || selTileY < 0) return;
+        const k = selTileX + ',' + selTileY;
+        const h = parseInt(h0Input.value) || 0;
+        if (!data[k]) data[k] = { layer0: -1, height0: 0, layer1: 0, height1: 0, barrier: false };
+        data[k].height0 = Math.max(0, Math.min(15, h));
+        render(); updateInfo();
+      });
+    }
+    if (h1Input) {
+      h1Input.addEventListener('change', () => {
+        if (selTileX < 0 || selTileY < 0) return;
+        const k = selTileX + ',' + selTileY;
+        const h = parseInt(h1Input.value) || 0;
+        if (!data[k]) data[k] = { layer0: -1, height0: 0, layer1: 0, height1: 0, barrier: false };
+        data[k].height1 = Math.max(0, Math.min(15, h));
+        render(); updateInfo();
+      });
+    }
   }
 
   function open(targetIdx = -1) {
@@ -77,25 +161,41 @@ const TemplateEditor = (function() {
     editMode = targetIdx >= 0;
     editIdx = targetIdx;
     document.getElementById('template-modal').classList.remove('hidden');
+    editorTileImages = null;
 
     if (editMode && editIdx >= 0 && editIdx < savedTemplates.length) {
       // 编辑现有模板
       const tpl = savedTemplates[editIdx];
       document.getElementById('template-name').value = tpl.name;
       data = {};
+      baseParity = tpl.baseParity || 0;
       minX = 0; maxX = tpl.w - 1; minY = 0; maxY = tpl.h - 1;
       for (const t of tpl.tiles) {
-        data[t.x + ',' + t.y] = { layer0: t.layer0 > 0 ? t.layer0 : -1, layer1: t.layer1, barrier: t.barrier };
+        data[t.x + ',' + t.y] = {
+          layer0: t.layer0,
+          height0: t.height0 || 0,
+          layer1: t.layer1,
+          height1: t.height1 || 0,
+          barrier: t.barrier
+        };
+      }
+      // 将模板自带的 tileImages 转换为 ImageData 缓存，避免 GOP 切换后图块错乱
+      if (tpl.tileImages) {
+        editorTileImages = {};
+        for (const [id, base64] of Object.entries(tpl.tileImages)) {
+          editorTileImages[id] = base64ToImageData(base64);
+        }
       }
     } else {
       // 新建模板
-      data = {}; minX = 0; maxX = 1; minY = 0; maxY = 1;
+      data = {}; baseParity = 0; minX = 0; maxX = 1; minY = 0; maxY = 1;
       undoStack.length = 0; redoStack.length = 0;
       document.getElementById('template-name').value = '模板' + (savedTemplates.length + 1);
     }
     selTileX = -1; selTileY = -1;
     mouseTileX = -1; mouseTileY = -1;
 
+    resizeCanvas();
     buildTileGrid();
     render(); updateInfo();
   }
@@ -111,8 +211,10 @@ const TemplateEditor = (function() {
       div.className = 'tile-thumb' + (i === selectedTile ? ' selected' : '');
       div.dataset.id = i;
       const c = document.createElement('canvas');
-      c.width = gopTiles[i].width; c.height = gopTiles[i].height;
-      c.getContext('2d').putImageData(gopTiles[i], 0, 0);
+      // 优先使用模板自带的图块图像，避免 GOP 切换后错乱
+      const tileImg = editorTileImages && editorTileImages[i] ? editorTileImages[i] : gopTiles[i];
+      c.width = tileImg.width; c.height = tileImg.height;
+      c.getContext('2d').putImageData(tileImg, 0, 0);
       div.appendChild(c);
       const idLabel = document.createElement('span');
       idLabel.className = 'tile-id'; idLabel.textContent = i;
@@ -130,7 +232,7 @@ const TemplateEditor = (function() {
   function isOpened() { return isOpen; }
 
   function getCamera() {
-    const dminX = minX - 1, dminY = minY - 1, dmaxX = maxX + 1, dmaxY = maxY + 1;
+    const dminX = minX - 1 + baseParity, dminY = minY - 1, dmaxX = maxX + 1 + baseParity, dmaxY = maxY + 1;
     const p1 = MapModule.tileToPixel(dminX, dminY);
     const p4 = MapModule.tileToPixel(dmaxX, dmaxY);
     const cw = p4.x - p1.x + 64, ch = p4.y - p1.y + 30;
@@ -173,15 +275,21 @@ const TemplateEditor = (function() {
     document.getElementById('template-sel-tile').textContent = tile.x + ', ' + tile.y;
 
     if (isMouseDown && e.button === 0) {
-      const key = tile.x + ',' + tile.y;
-      const oldV = data[key] ? { ...data[key] } : { layer0: -1, layer1: 0, barrier: false };
-      apply(tile.x, tile.y);
-      const newV = data[key] ? { ...data[key] } : { layer0: -1, layer1: 0, barrier: false };
-      if (JSON.stringify(oldV) !== JSON.stringify(newV)) {
-        undoStack.push({ x: tile.x, y: tile.y, oldV, newV });
-        redoStack.length = 0;
+      selTileX = tile.x; selTileY = tile.y;
+      if (tTool === 'select') {
+        // 选择工具：只更新选中状态，不修改数据
+        render(); updateInfo();
+      } else {
+        const key = tile.x + ',' + tile.y;
+        const oldV = data[key] ? { ...data[key] } : { layer0: -1, height0: 0, layer1: 0, height1: 0, barrier: false };
+        apply(tile.x, tile.y);
+        const newV = data[key] ? { ...data[key] } : { layer0: -1, height0: 0, layer1: 0, height1: 0, barrier: false };
+        if (JSON.stringify(oldV) !== JSON.stringify(newV)) {
+          undoStack.push({ x: tile.x, y: tile.y, oldV, newV });
+          redoStack.length = 0;
+        }
+        render(); updateInfo();
       }
-      render(); updateInfo();
     }
   }
 
@@ -190,11 +298,16 @@ const TemplateEditor = (function() {
     if (tx < minX) minX = tx; if (tx > maxX) maxX = tx;
     if (ty < minY) minY = ty; if (ty > maxY) maxY = ty;
     const k = tx + ',' + ty;
-    if (!data[k]) data[k] = { layer0: -1, layer1: 0, barrier: false };
+    if (!data[k]) data[k] = { layer0: -1, height0: 0, layer1: 0, height1: 0, barrier: false };
     if (tTool === 'pen') {
       if (selectedTile >= 0) {
-        if (tLayer === 0) data[k].layer0 = selectedTile;
-        else data[k].layer1 = selectedTile + 1;
+        if (tLayer === 0) {
+          data[k].layer0 = selectedTile;
+          if (data[k].height0 === undefined) data[k].height0 = 0;
+        } else {
+          data[k].layer1 = selectedTile + 1;
+          if (data[k].height1 === undefined) data[k].height1 = 0;
+        }
       }
     } else if (tTool === 'erase') {
       if (tLayer === 0) data[k].layer0 = -1;
@@ -252,67 +365,124 @@ const TemplateEditor = (function() {
 
   function render() {
     if (!ctx) return;
-    tilePositions = []; // 每次渲染时重置
+    tilePositions = [];
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const { cx, cy, ox, oy } = getCamera();
-    const cp = MapModule.tileToPixel(cx, cy);
+    ctx.fillStyle = '#0c0c10';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const canvasW = canvas.width;
+    const canvasH = canvas.height;
+
+    // 计算数据中心的像素坐标，让模板自动居中
+    let dataMinX = Infinity, dataMaxX = -Infinity, dataMinY = Infinity, dataMaxY = -Infinity;
+    for (const k of Object.keys(data)) {
+      const [x, y] = k.split(',').map(Number);
+      dataMinX = Math.min(dataMinX, x);
+      dataMaxX = Math.max(dataMaxX, x);
+      dataMinY = Math.min(dataMinY, y);
+      dataMaxY = Math.max(dataMaxY, y);
+    }
+    let midX = 0, midY = 0;
+    if (Object.keys(data).length > 0) {
+      midX = Math.round((dataMinX + dataMaxX) / 2);
+      midY = Math.round((dataMinY + dataMaxY) / 2);
+    }
+    const midPixel = MapModule.tileToPixel(midX + baseParity, midY);
+    const offsetX = canvasW / 2 - midPixel.x;
+    const offsetY = canvasH / 2 - midPixel.y;
+
     const gopTiles = UI.getTiles();
 
-    for (let ty = minY - 1; ty <= maxY + 1; ty++) {
-      for (let tx = minX - 1; tx <= maxX + 1; tx++) {
-        const p = MapModule.tileToPixel(tx, ty);
-        const px = p.x - cp.x + ox, py = p.y - cp.y + oy;
-        tilePositions.push({ tx, ty, px, py }); // 记录位置供 onMouse 使用
+    // 计算铺满画布所需的 tile 范围
+    const cols = Math.ceil(canvasW / 32) + 6;
+    const rows = Math.ceil(canvasH / 32) + 6;
+    const startX = midX - Math.floor(cols / 2);
+    const endX   = midX + Math.floor(cols / 2);
+    const startY = midY - Math.floor(rows / 2);
+    const endY   = midY + Math.floor(rows / 2);
 
-        const inR = tx >= minX && tx <= maxX && ty >= minY && ty <= maxY;
+    for (let ty = startY; ty <= endY; ty++) {
+      for (let tx = startX; tx <= endX; tx++) {
+        const actualX = tx + baseParity;
+        const p = MapModule.tileToPixel(actualX, ty);
+        const px = offsetX + p.x;
+        const py = offsetY + p.y;
+
+        // 视口裁剪
+        if (px + 32 < 0 || px - 32 > canvasW || py + 15 < 0 || py - 15 > canvasH) continue;
+
+        tilePositions.push({ tx, ty, px, py });
+
         const k = tx + ',' + ty;
         const t = data[k];
-        if (inR && t && gopTiles) {
+        const inR = tx >= minX && tx <= maxX && ty >= minY && ty <= maxY;
+        const isOrigin = tx === 0 && ty === 0;
+
+        // 菱形暗色网格
+        if (isOrigin) {
+          drawDiamond(ctx, px, py, 64, 30, 'rgba(43, 138, 238, 0.5)', 'rgba(43, 138, 238, 0.15)');
+        } else if (inR) {
+          drawDiamond(ctx, px, py, 64, 30, 'rgba(255,255,255,0.10)');
+        } else {
+          drawDiamond(ctx, px, py, 64, 30, 'rgba(255,255,255,0.04)');
+        }
+
+        // 绘制图块数据
+        if (t && (gopTiles || editorTileImages)) {
           if (showL0 && t.layer0 >= 0) {
-            const i0 = MapModule.getLayerImage(t.layer0);
-            if (i0 >= 0 && i0 < gopTiles.length) drawImg(ctx, px - 32, py - 15, gopTiles[i0]);
+            const i0 = t.layer0;
+            const img0 = editorTileImages && editorTileImages[i0] ? editorTileImages[i0]
+              : (gopTiles && i0 >= 0 && i0 < gopTiles.length ? gopTiles[i0] : null);
+            if (img0) drawImg(ctx, px - 32, py - 15, img0);
           }
           if (showL1 && t.layer1 > 0) {
-            const i1 = MapModule.getLayerImage(t.layer1);
-            if (i1 > 0 && i1 - 1 < gopTiles.length) drawImg(ctx, px - 32, py - 15, gopTiles[i1 - 1]);
+            const i1 = t.layer1 - 1;
+            const img1 = editorTileImages && editorTileImages[i1] ? editorTileImages[i1]
+              : (gopTiles && i1 >= 0 && i1 < gopTiles.length ? gopTiles[i1] : null);
+            if (img1) drawImg(ctx, px - 32, py - 15, img1);
           }
           if (t.barrier) drawImg(ctx, px - 32, py - 15, Editor.barrierImg);
         }
-        // 绘制菱形网格线（等距 tile 的实际形状）
-        drawDiamond(ctx, px, py, 64, 30, inR ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)');
       }
     }
 
-    // 绘制鼠标悬停提示图（bitmap1.png）
+    // 鼠标悬停提示
     if (mouseTileX >= 0 && mouseTileY >= 0) {
-      const p = MapModule.tileToPixel(mouseTileX, mouseTileY);
-      const px = p.x - cp.x + ox, py = p.y - cp.y + oy;
+      const p = MapModule.tileToPixel(mouseTileX + baseParity, mouseTileY);
+      const px = offsetX + p.x;
+      const py = offsetY + p.y;
       if (Editor.mouseImg) {
         drawImg(ctx, px - 32, py - 15, Editor.mouseImg);
       }
     }
 
-    // 绘制选中提示图（bitmap2.png）
+    // 选中提示
     if (selTileX >= 0 && selTileY >= 0) {
-      const p = MapModule.tileToPixel(selTileX, selTileY);
-      const px = p.x - cp.x + ox, py = p.y - cp.y + oy;
+      const p = MapModule.tileToPixel(selTileX + baseParity, selTileY);
+      const px = offsetX + p.x;
+      const py = offsetY + p.y;
       if (Editor.selImg) {
         drawImg(ctx, px - 32, py - 15, Editor.selImg);
       }
     }
   }
 
-  function drawDiamond(c, cx, cy, w, h, color) {
-    c.strokeStyle = color;
-    c.lineWidth = 1;
+  function drawDiamond(c, cx, cy, w, h, strokeColor, fillColor) {
     c.beginPath();
     c.moveTo(cx, cy - h / 2);      // 上
     c.lineTo(cx + w / 2, cy);      // 右
     c.lineTo(cx, cy + h / 2);      // 下
     c.lineTo(cx - w / 2, cy);      // 左
     c.closePath();
-    c.stroke();
+    if (fillColor) {
+      c.fillStyle = fillColor;
+      c.fill();
+    }
+    if (strokeColor) {
+      c.strokeStyle = strokeColor;
+      c.lineWidth = 1;
+      c.stroke();
+    }
   }
 
   function drawImg(c, x, y, source) {
@@ -334,6 +504,33 @@ const TemplateEditor = (function() {
 
   function updateInfo() {
     document.getElementById('template-grid-size').textContent = (maxX - minX + 1) + '×' + (maxY - minY + 1);
+    const selEl = document.getElementById('template-sel-tile');
+    const l0IdEl = document.getElementById('t-l0-id');
+    const l1IdEl = document.getElementById('t-l1-id');
+    const h0Input = document.getElementById('t-l0-height');
+    const h1Input = document.getElementById('t-l1-height');
+    if (selTileX >= 0 && selTileY >= 0) {
+      selEl.textContent = selTileX + ', ' + selTileY;
+      const k = selTileX + ',' + selTileY;
+      const t = data[k];
+      if (t) {
+        if (l0IdEl) l0IdEl.textContent = t.layer0 >= 0 ? t.layer0 : '-';
+        if (l1IdEl) l1IdEl.textContent = t.layer1 > 0 ? (t.layer1 - 1) : '-';
+        if (h0Input) h0Input.value = t.height0 || 0;
+        if (h1Input) h1Input.value = t.height1 || 0;
+      } else {
+        if (l0IdEl) l0IdEl.textContent = '-';
+        if (l1IdEl) l1IdEl.textContent = '-';
+        if (h0Input) h0Input.value = 0;
+        if (h1Input) h1Input.value = 0;
+      }
+    } else {
+      selEl.textContent = '-, -';
+      if (l0IdEl) l0IdEl.textContent = '-';
+      if (l1IdEl) l1IdEl.textContent = '-';
+      if (h0Input) h0Input.value = 0;
+      if (h1Input) h1Input.value = 0;
+    }
   }
 
   function saveTemplate() {
@@ -346,8 +543,10 @@ const TemplateEditor = (function() {
         if (t && (t.layer0 >= 0 || t.layer1 > 0 || t.barrier)) {
           tplTiles.push({
             x: tx - minX, y: ty - minY,
-            layer0: t.layer0 >= 0 ? t.layer0 : 0,
-            layer1: t.layer1 > 0 ? t.layer1 : 0,
+            layer0: t.layer0,
+            height0: t.height0 || 0,
+            layer1: t.layer1,
+            height1: t.height1 || 0,
             barrier: t.barrier
           });
         }
@@ -355,13 +554,37 @@ const TemplateEditor = (function() {
     }
     if (tplTiles.length === 0) { alert('模板为空'); return; }
 
+    const sourceGop = (typeof UI !== 'undefined' && UI.getGopFileName) ? UI.getGopFileName() : '';
+    const gopTiles = (typeof UI !== 'undefined' && UI.getTiles) ? UI.getTiles() : null;
+
+    // 收集模板中用到的图块图像数据
+    const tileImages = {};
+    if (gopTiles) {
+      const usedIds = new Set();
+      for (const t of tplTiles) {
+        if (t.layer0 >= 0) usedIds.add(t.layer0);
+        if (t.layer1 > 0) usedIds.add(t.layer1 - 1); // layer1 存储的是 id + 1
+      }
+      for (const id of usedIds) {
+        // 优先使用编辑器中已有的图块图像（保持原始 GOP 的图块）
+        if (editorTileImages && editorTileImages[id]) {
+          tileImages[id] = imageDataToBase64(editorTileImages[id]);
+        } else if (id >= 0 && id < gopTiles.length) {
+          tileImages[id] = imageDataToBase64(gopTiles[id]);
+        }
+      }
+    }
+
+    const template = {
+      name, tiles: tplTiles, w: maxX - minX + 1, h: maxY - minY + 1,
+      baseParity: baseParity, sourceGop, tileImages
+    };
+
     if (editMode && editIdx >= 0 && editIdx < savedTemplates.length) {
-      // 更新现有模板
-      savedTemplates[editIdx] = { name, tiles: tplTiles, w: maxX - minX + 1, h: maxY - minY + 1 };
+      savedTemplates[editIdx] = template;
       selIdx = editIdx;
     } else {
-      // 添加新模板
-      savedTemplates.push({ name, tiles: tplTiles, w: maxX - minX + 1, h: maxY - minY + 1 });
+      savedTemplates.push(template);
       selIdx = savedTemplates.length - 1;
     }
     editMode = false; editIdx = -1;
@@ -373,6 +596,40 @@ const TemplateEditor = (function() {
   function getTemplates() { return savedTemplates; }
   function getSelected() { return selIdx >= 0 ? savedTemplates[selIdx] : null; }
   function selectTemplate(idx) { selIdx = idx; }
+
+  let selectedTemplateIndices = new Set();
+  function toggleTemplateSelection(idx) {
+    if (selectedTemplateIndices.has(idx)) {
+      selectedTemplateIndices.delete(idx);
+    } else {
+      selectedTemplateIndices.add(idx);
+    }
+  }
+  function clearTemplateSelection() { selectedTemplateIndices.clear(); }
+  function getSelectedTemplateIndices() { return Array.from(selectedTemplateIndices); }
+  function isTemplateSelected(idx) { return selectedTemplateIndices.has(idx); }
+  function deleteSelectedTemplates() {
+    const indices = Array.from(selectedTemplateIndices).sort((a, b) => b - a);
+    for (const idx of indices) {
+      if (idx >= 0 && idx < savedTemplates.length) {
+        savedTemplates.splice(idx, 1);
+      }
+    }
+    selectedTemplateIndices.clear();
+    if (selIdx >= savedTemplates.length) selIdx = savedTemplates.length - 1;
+    if (savedTemplates.length === 0) selIdx = -1;
+    if (typeof UI !== 'undefined' && UI.refreshTemplateList) UI.refreshTemplateList();
+  }
+  function deleteTemplateByIndex(idx) {
+    if (idx >= 0 && idx < savedTemplates.length) {
+      savedTemplates.splice(idx, 1);
+      if (selIdx >= savedTemplates.length) selIdx = savedTemplates.length - 1;
+      if (savedTemplates.length === 0) selIdx = -1;
+      selectedTemplateIndices.clear();
+      if (typeof UI !== 'undefined' && UI.refreshTemplateList) UI.refreshTemplateList();
+    }
+  }
+
   function setSelectedTile(id) {
     selectedTile = id;
     const grid = document.getElementById('template-tile-grid');
@@ -385,5 +642,5 @@ const TemplateEditor = (function() {
     if (curTile) curTile.textContent = id;
   }
 
-  return { init, open, close, isOpened, getTemplates, getSelected, selectTemplate, setSelectedTile };
+  return { init, open, close, isOpened, getTemplates, getSelected, selectTemplate, setSelectedTile, buildTileGrid, toggleTemplateSelection, clearTemplateSelection, getSelectedTemplateIndices, isTemplateSelected, deleteSelectedTemplates, deleteTemplateByIndex, base64ToImageData };
 })();

@@ -16,6 +16,19 @@ const Renderer = (function () {
   const COLOR_KEY_G = 88;
   const COLOR_KEY_B = 100;
 
+  // 将模板自带的 base64 图块数据解码为 ImageData
+  function base64ToImageData(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const w = bytes[0] | (bytes[1] << 8);
+    const h = bytes[2] | (bytes[3] << 8);
+    const data = new Uint8ClampedArray(bytes.slice(4));
+    return new ImageData(data, w, h);
+  }
+
   function init(mapCanvasId, miniCanvasId) {
     mapCanvas = document.getElementById(mapCanvasId);
     mapCtx = mapCanvas.getContext('2d', { alpha: false });
@@ -41,13 +54,15 @@ const Renderer = (function () {
   }
 
   // 绘制一个图块（支持 ImageData 和 Image/Canvas 两种类型）
-  function drawTileImage(ctx, x, y, source) {
+  function drawTileImage(ctx, x, y, source, zoom) {
     if (!source) return;
+    zoom = zoom || 1;
+    let temp;
     if (source instanceof HTMLImageElement || source instanceof HTMLCanvasElement) {
-      ctx.drawImage(source, x, y);
+      temp = source;
     } else {
       // ImageData：使用临时 Canvas 缓存
-      let temp = source._tempCanvas;
+      temp = source._tempCanvas;
       if (!temp) {
         temp = document.createElement('canvas');
         temp.width = source.width;
@@ -57,7 +72,41 @@ const Renderer = (function () {
         tctx.putImageData(source, 0, 0);
         source._tempCanvas = temp;
       }
-      ctx.drawImage(temp, x, y);
+    }
+    const w = (temp.width || temp.naturalWidth || 64) * zoom;
+    const h = (temp.height || temp.naturalHeight || 30) * zoom;
+    ctx.drawImage(temp, x, y, w, h);
+  }
+
+  // 按高度阈值重画单个图块（用于人物对象遮挡）
+  // 参考 MapEx_ReDrawTiles / Map_DrawTile 实现：只有图块高度 >= 阈值时才绘制
+  function drawTileWithThreshold(ctx, cameraX, cameraY, zoom, tiles, tx, ty, showL0, showL1, h0Threshold, h1Threshold) {
+    if (!MapModule.assert(tx, ty)) return;
+
+    const px = MapModule.tileToPixel(tx, ty).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
+    const py = MapModule.tileToPixel(tx, ty).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
+
+    // 检查是否在视口内
+    if (px * zoom + TILE_W * zoom < 0 || py * zoom + TILE_H * zoom < 0 || px * zoom >= ctx.canvas.width || py * zoom >= ctx.canvas.height) return;
+
+    const word0 = MapModule.getTile(tx, ty, 0);
+    const word1 = MapModule.getTile(tx, ty, 1);
+
+    const h0 = MapModule.getLayerHeight(word0);
+    const h1 = MapModule.getLayerHeight(word1);
+
+    if (showL0 && h0 >= h0Threshold) {
+      const img0 = MapModule.getLayerImage(word0);
+      if (img0 >= 0 && img0 < tiles.length) {
+        drawTileImage(ctx, px * zoom, py * zoom, tiles[img0], zoom);
+      }
+    }
+
+    if (showL1 && h1 >= h1Threshold) {
+      const img1 = MapModule.getLayerImage(word1);
+      if (img1 > 0 && img1 - 1 < tiles.length) {
+        drawTileImage(ctx, px * zoom, py * zoom, tiles[img1 - 1], zoom);
+      }
     }
   }
 
@@ -68,12 +117,9 @@ const Renderer = (function () {
   // showObject: 是否显示人物对象
   // objectImg: 人物对象的 ImageData
   // mouseTile: {x, y} 鼠标悬停的 Tile
-  // selTile: {x, y} 选中的 Tile
-  // barrierImg: 障碍标记的 ImageData
-  // mouseImg: 鼠标悬停标记的 ImageData
-  // selImg: 选中标记的 ImageData
-  function renderMap(cameraX, cameraY, tiles, showL0, showL1, showBarrier, showObject, objectImg,
-                     mouseTile, selTile, barrierImg, mouseImg, selImg,
+  // selTiles: Array<{x, y}> 选中的 Tile 列表
+  function renderMap(cameraX, cameraY, zoom, tiles, showL0, showL1, showBarrier, showObject, objectImg,
+                     mouseTile, selTiles, barrierImg, mouseImg, selImg,
                      previewTemplate, previewPos) {
     const ctx = backCtx;
     const cw = backCanvas.width;
@@ -83,9 +129,11 @@ const Renderer = (function () {
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, cw, ch);
 
-    // 计算可见范围（根据容器尺寸动态计算）
-    const viewW = Math.ceil(cw / 32) + 4;
-    const viewH = Math.ceil(ch / 32) + 4;
+    // 计算可见范围（根据缩放调整）
+    const viewW = Math.ceil(cw / zoom / 32) + 4;
+    const viewH = Math.ceil(ch / zoom / 32) + 4;
+
+    const primarySel = (selTiles && selTiles.length > 0) ? selTiles[0] : null;
 
     // 从 camera 位置开始绘制，先 y 后 x（同原代码）
     for (let ly = 0; ly < viewH; ly++) {
@@ -97,14 +145,14 @@ const Renderer = (function () {
         const px = MapModule.tileToPixel(tx, ty).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
         const py = MapModule.tileToPixel(tx, ty).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
 
-        // 只绘制在视口内的
-        if (px + TILE_W < 0 || py + TILE_H < 0 || px >= cw || py >= ch) continue;
+        // 只绘制在视口内的（使用缩放后的坐标判断）
+        if (px * zoom + TILE_W * zoom < 0 || py * zoom + TILE_H * zoom < 0 || px * zoom >= cw || py * zoom >= ch) continue;
 
         // Layer0
         if (showL0) {
           const img0 = MapModule.getTileImage(tx, ty, 0);
           if (img0 >= 0 && img0 < tiles.length) {
-            drawTileImage(ctx, px, py, tiles[img0]);
+            drawTileImage(ctx, px * zoom, py * zoom, tiles[img0], zoom);
           }
         }
 
@@ -112,18 +160,56 @@ const Renderer = (function () {
         if (showL1) {
           const img1 = MapModule.getTileImage(tx, ty, 1);
           if (img1 > 0 && img1 - 1 < tiles.length) {
-            drawTileImage(ctx, px, py, tiles[img1 - 1]);
+            drawTileImage(ctx, px * zoom, py * zoom, tiles[img1 - 1], zoom);
           }
         }
       }
     }
 
-    // 绘制人物对象（在选中的 Tile 上，向上偏移 110-32=78 像素）
-    if (showObject && selTile && MapModule.assert(selTile.x, selTile.y)) {
-      const px = MapModule.tileToPixel(selTile.x, selTile.y).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
-      const py = MapModule.tileToPixel(selTile.x, selTile.y).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H - (110 - 32);
+    // 绘制人物对象：先画人物覆盖所有图块，然后重画周围三列（使用高度阈值实现遮挡）
+    if (showObject && primarySel && MapModule.assert(primarySel.x, primarySel.y)) {
+      const objPx = MapModule.tileToPixel(primarySel.x, primarySel.y).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
+      const objPy = MapModule.tileToPixel(primarySel.x, primarySel.y).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H - (110 - 32);
       if (objectImg) {
-        drawTileImage(ctx, px, py, objectImg);
+        drawTileImage(ctx, objPx * zoom, objPy * zoom, objectImg, zoom);
+      }
+
+      // 重画人物周围的Tile，使用高度阈值：只有高度>=阈值的图块才覆盖人物
+      // 参考 MapEx_ReDrawTiles 实现
+      // 中心列：阈值 1,3,5,7
+      for (let i = 0; i < 4; i++) {
+        const tx = primarySel.x;
+        const ty = primarySel.y - i;
+        const threshold = i * 2 + 1;
+        drawTileWithThreshold(ctx, cameraX, cameraY, zoom, tiles, tx, ty, showL0, showL1, threshold, threshold);
+      }
+
+      // 西列（左）：阈值 2,4,6,8
+      let wx, wy;
+      if (primarySel.x % 2 === 0) {
+        wx = primarySel.x - 1; wy = primarySel.y - 1;
+      } else {
+        wx = primarySel.x - 1; wy = primarySel.y;
+      }
+      for (let i = 0; i < 4; i++) {
+        const tx = wx;
+        const ty = wy - i;
+        const threshold = i * 2 + 2;
+        drawTileWithThreshold(ctx, cameraX, cameraY, zoom, tiles, tx, ty, showL0, showL1, threshold, threshold);
+      }
+
+      // 北列（右）：阈值 2,4,6,8
+      let nx, ny;
+      if (primarySel.x % 2 === 0) {
+        nx = primarySel.x + 1; ny = primarySel.y - 1;
+      } else {
+        nx = primarySel.x + 1; ny = primarySel.y;
+      }
+      for (let i = 0; i < 4; i++) {
+        const tx = nx;
+        const ty = ny - i;
+        const threshold = i * 2 + 2;
+        drawTileWithThreshold(ctx, cameraX, cameraY, zoom, tiles, tx, ty, showL0, showL1, threshold, threshold);
       }
     }
 
@@ -138,7 +224,7 @@ const Renderer = (function () {
             const px = MapModule.tileToPixel(tx, ty).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
             const py = MapModule.tileToPixel(tx, ty).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
             if (barrierImg) {
-              drawTileImage(ctx, px, py, barrierImg);
+              drawTileImage(ctx, px * zoom, py * zoom, barrierImg, zoom);
             }
           }
         }
@@ -150,16 +236,20 @@ const Renderer = (function () {
       const px = MapModule.tileToPixel(mouseTile.x, mouseTile.y).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
       const py = MapModule.tileToPixel(mouseTile.x, mouseTile.y).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
       if (mouseImg) {
-        drawTileImage(ctx, px, py, mouseImg);
+        drawTileImage(ctx, px * zoom, py * zoom, mouseImg, zoom);
       }
     }
 
-    // 绘制选中标记
-    if (selTile && MapModule.assert(selTile.x, selTile.y)) {
-      const px = MapModule.tileToPixel(selTile.x, selTile.y).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
-      const py = MapModule.tileToPixel(selTile.x, selTile.y).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
-      if (selImg) {
-        drawTileImage(ctx, px, py, selImg);
+    // 绘制选中标记（所有选中的 tile）
+    if (selTiles && selTiles.length > 0) {
+      for (const st of selTiles) {
+        if (MapModule.assert(st.x, st.y)) {
+          const px = MapModule.tileToPixel(st.x, st.y).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
+          const py = MapModule.tileToPixel(st.x, st.y).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
+          if (selImg) {
+            drawTileImage(ctx, px * zoom, py * zoom, selImg, zoom);
+          }
+        }
       }
     }
 
@@ -167,17 +257,40 @@ const Renderer = (function () {
     if (previewTemplate && previewPos && tiles) {
       ctx.save();
       ctx.globalAlpha = 0.3;
+      const baseParity = (previewTemplate.baseParity !== undefined ? previewTemplate.baseParity : 0) & 1;
+      const destParity = previewPos.x & 1;
       for (const t of previewTemplate.tiles) {
-        const tx = previewPos.x + t.x;
-        const ty = previewPos.y + t.y;
+        let tx = previewPos.x + t.x;
+        let ty = previewPos.y + t.y;
+        if (baseParity !== destParity) {
+          const absParity = (baseParity + t.x) & 1;
+          if (absParity === destParity) {
+            ty += (destParity - baseParity);
+          }
+        }
         if (!MapModule.assert(tx, ty)) continue;
         const px = MapModule.tileToPixel(tx, ty).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
         const py = MapModule.tileToPixel(tx, ty).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
-        const img0 = MapModule.getLayerImage(t.layer0);
-        if (img0 >= 0 && img0 < tiles.length) drawTileImage(ctx, px, py, tiles[img0]);
-        const img1 = MapModule.getLayerImage(t.layer1);
-        if (img1 > 0 && img1 - 1 < tiles.length) drawTileImage(ctx, px, py, tiles[img1 - 1]);
-        if (t.barrier) drawTileImage(ctx, px, py, barrierImg);
+        if (t.layer0 >= 0) {
+          let img0 = null;
+          if (previewTemplate.tileImages && previewTemplate.tileImages[t.layer0]) {
+            img0 = base64ToImageData(previewTemplate.tileImages[t.layer0]);
+          } else if (t.layer0 >= 0 && t.layer0 < tiles.length) {
+            img0 = tiles[t.layer0];
+          }
+          if (img0) drawTileImage(ctx, px * zoom, py * zoom, img0, zoom);
+        }
+        if (t.layer1 > 0) {
+          const i1 = t.layer1 - 1;
+          let img1 = null;
+          if (previewTemplate.tileImages && previewTemplate.tileImages[i1]) {
+            img1 = base64ToImageData(previewTemplate.tileImages[i1]);
+          } else if (i1 >= 0 && i1 < tiles.length) {
+            img1 = tiles[i1];
+          }
+          if (img1) drawTileImage(ctx, px * zoom, py * zoom, img1, zoom);
+        }
+        if (t.barrier) drawTileImage(ctx, px * zoom, py * zoom, barrierImg, zoom);
       }
       ctx.restore();
     }

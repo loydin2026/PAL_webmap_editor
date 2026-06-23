@@ -60,6 +60,7 @@ const App = (function () {
     // 填充下拉列表
     UI.fillGopSelect(gopList);
     UI.fillMapSelect(mapList);
+    UI.fillPaletteSelect();
 
     // 3. 加载默认 GOP 图组（第一个非空的）
     let defaultGop = gopList.find(f => f !== 'gop0000') || gopList[0];
@@ -107,7 +108,7 @@ const App = (function () {
     const miniTiles = UI.getMiniTiles();
     const cam = Editor.getCamera();
     const mouseTile = Editor.getMouseTile();
-    const selTile = Editor.getSelTile();
+    const selTiles = Editor.getSelectedTiles();
 
     // 更新 Canvas 大小以匹配容器
     const mapCanvas = document.getElementById('map-canvas');
@@ -119,6 +120,7 @@ const App = (function () {
     if (tiles) {
       Renderer.renderMap(
         cam.x, cam.y,
+        Editor.getZoom(),
         tiles,
         Editor.getShowL0(),
         Editor.getShowL1(),
@@ -126,7 +128,7 @@ const App = (function () {
         Editor.getShowObject(),
         Editor.objectImg,
         mouseTile,
-        selTile,
+        selTiles,
         Editor.barrierImg,
         Editor.mouseImg,
         Editor.selImg,

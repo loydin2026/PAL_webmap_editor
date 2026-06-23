@@ -105,7 +105,8 @@ const MapModule = (function () {
     const a2 = vSegmentTable[xt2];
     const b2 = 30 - a2;
     const yt2 = py - Math.floor(b2 / 2);
-    const tileY = Math.floor((yt2 - ((yt2 % 32) + 32) % 32) / 32);
+    // C++ 的 (yt - yt % 32) / 32 对于负数是向零截断，不是 floor
+    const tileY = yt2 < 0 ? Math.ceil(yt2 / 32) : Math.floor(yt2 / 32);
 
     return { x: tileX, y: tileY };
   }
@@ -218,6 +219,8 @@ const MapModule = (function () {
     setTileHeight,
     setTileBarrierValue,
     getLayerImage,
+    setLayerImage,
+    setLayerHeight,
     getLayerHeight,
     isBarrier,
     loadMap,
