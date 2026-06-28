@@ -10,83 +10,119 @@
     <div id="app">
         <!-- 顶部工具栏 -->
         <div id="toolbar">
-            <button id="btn-new" title="新建">📄</button>
-            <button id="btn-open" title="打开地图">📂</button>
-            <button id="btn-save" title="保存">💾</button>
-            <button id="btn-save-as" title="另存为">💾+</button>
+            <div class="dropdown" id="file-dropdown">
+                <button class="dropdown-toggle">📂 文件</button>
+                <div class="dropdown-menu">
+                    <button id="btn-new" title="新建">📄 新建地图</button>
+                    <button id="btn-open" title="打开地图">📂 打开地图</button>
+                    <div class="dropdown-separator"></div>
+                    <button id="btn-save" title="保存">💾 保存</button>
+                    <button id="btn-save-as" title="另存为">💾 另存为</button>
+                    <div class="dropdown-separator"></div>
+                    <button id="btn-export-gop-mkf" title="GOP转MKF">🧩 GOP转MKF</button>
+                    <button id="btn-export-map-mkf" title="MAP转MKF">🗺️ MAP转MKF</button>
+                </div>
+            </div>
             <input type="file" id="file-input" accept="*" style="display:none">
-            <button id="btn-undo" title="撤销 (Ctrl+Z)">↩️</button>
-            <button id="btn-redo" title="重做 (Ctrl+Y / Ctrl+Shift+Z)">↪️</button>
-            <button id="btn-select" class="tool-btn active" data-tool="select" title="选择">👆</button>
-            <button id="btn-pen" class="tool-btn" data-tool="pen" title="画笔">🖌️</button>
-            <button id="btn-template" class="tool-btn" data-tool="template" title="模板">🍪</button>
-            <button id="btn-erase" class="tool-btn" data-tool="erase" title="擦除">🧹</button>
-            <button id="btn-barrier" class="tool-btn" data-tool="barrier" title="障碍">🚧</button>
-            <button id="btn-layer0" class="layer-btn active" data-layer="0" title="编辑第0层">L0</button>
-            <button id="btn-layer1" class="layer-btn" data-layer="1" title="编辑第1层">L1</button>
-            <button id="btn-view-barrier" class="toggle-btn" title="显示障碍">🚧</button>
-            <button id="btn-view-object" class="toggle-btn" title="显示人物对象">🧍</button>
+            <button id="btn-undo" title="撤销 (Ctrl+Z)">↩️撤销</button>
+            <button id="btn-redo" title="重做 (Ctrl+Y / Ctrl+Shift+Z)">↪️重做</button>
+            <button id="btn-select" class="tool-btn active" data-tool="select" title="选择">👆选择</button>
+            <button id="btn-pen" class="tool-btn" data-tool="pen" title="画笔">🖌️画笔</button>
+            <button id="btn-template" class="tool-btn" data-tool="template" title="模板">🍪模板</button>
+            <button id="btn-erase" class="tool-btn" data-tool="erase" title="擦除">🧹擦除</button>
+            <button id="btn-barrier" class="tool-btn" data-tool="barrier" title="障碍">🚧障碍</button>
+            <button id="btn-event" class="tool-btn" data-tool="event" title="事件">📌事件</button>
+            <button id="btn-layer0" class="layer-btn active" data-layer="0" title="编辑第0层">图层0</button>
+            <button id="btn-layer1" class="layer-btn" data-layer="1" title="编辑第1层">图层1</button>
+            <div class="toolbar-toggle-group">
+                <span class="toggle-label">🚧 显示障碍</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="chk-view-barrier">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="toolbar-toggle-group">
+                <span class="toggle-label">🧍 显示人物对象</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="chk-view-object">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="toolbar-toggle-group">
+                <span class="toggle-label">📌 显示事件</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="chk-view-event" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="toolbar-toggle-group">
+                <span class="toggle-label">🔲 显示网格</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="chk-view-grid">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="toolbar-toggle-group">
+                <span class="toggle-label">🧑 显示事件人物</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="chk-view-event-char">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="toolbar-spacer"></div>
+            <button id="btn-toggle-panel" title="显示/隐藏属性面板">📋属性面板</button>
         </div>
 
         <!-- 主工作区 -->
         <div id="workspace">
-            <!-- 左侧面板（抽屉式） -->
+            <!-- 左侧面板（标签页 + 事件区域） -->
             <div id="left-panel">
-                <!-- 抽屉1：地图 -->
-                <div class="drawer" data-drawer="map">
-                    <div class="drawer-header">
-                        <span class="drawer-icon">📂</span>
-                        <span>地图</span>
-                        <span class="drawer-toggle">▼</span>
+                <!-- 标签页导航（图块集 / 模板） -->
+                <div class="tabs-header" id="tile-tabs-header">
+                    <button class="tab-btn active" data-tab="tile">🧩 图块集</button>
+                    <button class="tab-btn" data-tab="template">🍪 模板</button>
+                </div>
+
+                <!-- 图块集标签内容 -->
+                <div class="tab-content" id="tab-content-tile">
+                    <div class="panel-select">
+                        <label>色板:</label>
+                        <select id="palette-select"></select>
                     </div>
-                    <div class="drawer-content">
-                        <div class="panel-select">
-                            <label>地图:</label>
-                            <select id="map-select"></select>
-                        </div>
+                    <div class="panel-select">
+                        <label>图组:</label>
+                        <select id="gop-select"></select>
+                    </div>
+                    <div id="tile-grid"></div>
+                    <div id="tile-info">选中: <span id="selected-tile-id">-1</span></div>
+                    <div class="tile-actions">
+                        <button id="btn-export-gop">💾 导出 GOP</button>
                     </div>
                 </div>
 
-                <!-- 抽屉2：图块集 -->
-                <div class="drawer" data-drawer="tile">
-                    <div class="drawer-header">
-                        <span class="drawer-icon">🧩</span>
-                        <span>图块集</span>
-                        <span class="drawer-toggle">▼</span>
-                    </div>
-                    <div class="drawer-content">
-                        <div class="panel-select">
-                            <label>色板:</label>
-                            <select id="palette-select"></select>
-                        </div>
-                        <div class="panel-select">
-                            <label>图组:</label>
-                            <select id="gop-select"></select>
-                        </div>
-                        <div id="tile-grid"></div>
-                        <div id="tile-info">选中: <span id="selected-tile-id">-1</span></div>
-                        <div class="tile-actions">
-                            <button id="btn-export-gop">💾 导出 GOP</button>
-                        </div>
+                <!-- 模板标签内容 -->
+                <div class="tab-content hidden" id="tab-content-template">
+                    <div id="template-list"></div>
+                    <div class="template-actions">
+                        <button id="btn-new-template">➕ 新建模板</button>
+                        <button id="btn-delete-templates" disabled>❌ 删除选中</button>
+                        <button id="btn-export-templates">💾 导出模板</button>
+                        <button id="btn-import-templates">📂 导入模板</button>
+                        <input type="file" id="template-import-input" accept=".json" style="display:none">
                     </div>
                 </div>
 
-                <!-- 抽屉3：模板 -->
-                <div class="drawer" data-drawer="template">
-                    <div class="drawer-header">
-                        <span class="drawer-icon">🍪</span>
-                        <span>模板</span>
-                        <span class="drawer-toggle">▼</span>
-                    </div>
-                    <div class="drawer-content">
-                        <div id="template-list"></div>
-                        <div class="template-actions">
-                            <button id="btn-new-template">➕ 新建模板</button>
-                            <button id="btn-delete-templates" disabled>❌ 删除选中</button>
-                            <button id="btn-export-templates">💾 导出模板</button>
-                            <button id="btn-import-templates">📂 导入模板</button>
-                            <input type="file" id="template-import-input" accept=".json" style="display:none">
-                        </div>
+                <!-- 事件区域（仅事件工具激活时显示） -->
+                <div class="event-section hidden" id="event-section">
+                    <div class="section-header">📌 事件</div>
+                    <div id="event-list"></div>
+                    <div class="event-actions">
+                        <button id="btn-export-events">💾 导出 JSON</button>
+                        <button id="btn-export-mkf">💾 导出 MKF</button>
+                        <button id="btn-import-events">📂 导入 JSON</button>
+                        <button id="btn-load-mkf">📂 加载 SSS.MKF</button>
+                        <input type="file" id="event-import-input" accept=".json" style="display:none">
+                        <input type="file" id="mkf-load-input" accept=".mkf" style="display:none">
                     </div>
                 </div>
             </div>
@@ -101,66 +137,115 @@
                         <button id="btn-zoom-in">+</button>
                     </div>
                 </div>
-            </div>
-
-            <!-- 右侧信息面板 -->
-            <div id="info-panel">
-                <div class="panel-section">
-                    <div class="panel-header">属性</div>
-                    <div class="attr-group">
-                        <div class="attr-group-title">位置</div>
-                        <div class="attr-row" id="attr-row-xy">
-                            <label>坐标:</label>
-                            <span id="attr-xy">-1, -1</span>
-                        </div>
+                <canvas id="minimap-canvas" width="128" height="128"></canvas>
+                <!-- 左上角地图选择器 -->
+                <div id="map-selector">
+                    <div class="panel-select">
+                        <label>地图:</label>
+                        <select id="map-select"></select>
                     </div>
-                    <div class="attr-group">
-                        <div class="attr-group-title">图层</div>
-                        <div class="attr-row attr-row-single">
-                            <label>Layer0 图像:</label>
-                            <input type="number" id="attr-image0" min="0" max="511">
-                        </div>
-                        <div class="attr-row attr-row-single">
-                            <label>Layer0 高度:</label>
-                            <input type="number" id="attr-height0" min="0" max="15">
-                        </div>
-                        <div class="attr-row attr-row-single">
-                            <label>Layer1 图像:</label>
-                            <input type="number" id="attr-image1" min="0" max="511">
-                        </div>
-                        <div class="attr-row attr-row-single">
-                            <label>Layer1 高度:</label>
-                            <input type="number" id="attr-height1" min="0" max="15">
-                        </div>
-                    </div>
-                    <div class="attr-group">
-                        <div class="attr-group-title">障碍</div>
-                        <div class="attr-row attr-row-single">
-                            <label>障碍:</label>
-                            <input type="checkbox" id="attr-barrier">
-                        </div>
-                    </div>
-                    <div class="attr-row" id="attr-row-template" style="display:none">
-                        <button id="btn-create-template">🍪 创建模板</button>
-                    </div>
-                    <button id="btn-apply-attr">应用属性</button>
-                </div>
-
-                <div class="panel-section">
-                    <div class="panel-header">图层</div>
                     <div class="layer-toggle-row active" id="layer-toggle-0">
-                        <span class="layer-toggle-eye">👁️‍🗨️</span>
-                        <span class="layer-toggle-name">Layer 0</span>
+                        <div class="layer-toggle-name">图层 0</div>
                     </div>
                     <div class="layer-toggle-row active" id="layer-toggle-1">
-                        <span class="layer-toggle-eye">👁️‍🗨️</span>
-                        <span class="layer-toggle-name">Layer 1</span>
+                        <div class="layer-toggle-name">图层 1</div>
                     </div>
                 </div>
 
-                <div class="panel-section">
-                    <div class="panel-header">小地图</div>
-                    <canvas id="minimap-canvas" width="128" height="128"></canvas>
+                <!-- 浮动属性面板（可拖动） -->
+                <div id="info-panel">
+                    <div id="drag-header" class="drag-header">
+                        <span>属性面板</span>
+                        <span id="drag-close">×</span>
+                    </div>
+                    <div class="panel-section">
+                        <div class="attr-group">
+                            <div class="attr-group-title">位置</div>
+                            <div class="attr-row" id="attr-row-xy">
+                                <label>坐标:</label>
+                                <span id="attr-xy">-1, -1</span>
+                            </div>
+                        </div>
+                        <div class="attr-group">
+                            <div class="attr-group-title">图层</div>
+                            <div class="attr-row attr-row-single">
+                                <label>Layer0 图像:</label>
+                                <input type="number" id="attr-image0" min="0" max="511">
+                            </div>
+                            <div class="attr-row attr-row-single">
+                                <label>Layer0 高度:</label>
+                                <input type="number" id="attr-height0" min="0" max="15">
+                            </div>
+                            <div class="attr-row attr-row-single">
+                                <label>Layer1 图像:</label>
+                                <input type="number" id="attr-image1" min="0" max="511">
+                            </div>
+                            <div class="attr-row attr-row-single">
+                                <label>Layer1 高度:</label>
+                                <input type="number" id="attr-height1" min="0" max="15">
+                            </div>
+                        </div>
+                        <div class="attr-group">
+                            <div class="attr-group-title">障碍</div>
+                            <div class="attr-row attr-row-single">
+                                <label>障碍:</label>
+                                <input type="checkbox" id="attr-barrier">
+                            </div>
+                        </div>
+                        <div class="attr-group" id="attr-group-event" style="display:none">
+                            <div class="attr-group-title">事件对象</div>
+                            <div class="attr-row attr-row-single">
+                                <label>事件 ID:</label>
+                                <span id="attr-event-id">-1</span>
+                            </div>
+                            <div class="attr-row attr-row-single">
+                                <label>触发脚本:</label>
+                                <input type="number" id="attr-event-trigger-script" min="0" max="65535">
+                            </div>
+                            <div class="attr-row attr-row-single">
+                                <label>自动脚本:</label>
+                                <input type="number" id="attr-event-auto-script" min="0" max="65535">
+                            </div>
+                            <div class="attr-row attr-row-single">
+                                <label>触发方式:</label>
+                                <select id="attr-event-trigger-method">
+                                    <option value="0">0: 无法触发</option>
+                                    <option value="1">1: 近距离调查</option>
+                                    <option value="2">2: 中距离调查</option>
+                                    <option value="3">3: 远距离调查</option>
+                                    <option value="4">4: 近距离接触</option>
+                                    <option value="5">5: 中距离接触</option>
+                                    <option value="6">6: 远距离接触</option>
+                                    <option value="7">7: 超远距离接触</option>
+                                    <option value="8">8: 超特远距离接触</option>
+                                </select>
+                            </div>
+                            <div class="attr-row attr-row-single">
+                                <label>图像 ID:</label>
+                                <input type="number" id="attr-event-image" min="0" max="65535">
+                            </div>
+                            <div class="attr-row attr-row-single">
+                                <label>帧数:</label>
+                                <input type="number" id="attr-event-frames" min="0" max="65535">
+                            </div>
+                            <div class="attr-row attr-row-single">
+                                <label>方向:</label>
+                                <input type="number" id="attr-event-direction" min="0" max="3">
+                            </div>
+                            <div class="attr-row attr-row-single">
+                                <label>状态:</label>
+                                <input type="number" id="attr-event-status" min="0" max="65535">
+                            </div>
+                            <div class="attr-row attr-row-single">
+                                <label>消失时间:</label>
+                                <input type="number" id="attr-event-vanish" min="0" max="65535">
+                            </div>
+                        </div>
+                        <div class="attr-row" id="attr-row-template" style="display:none">
+                            <button id="btn-create-template">🍪 创建模板</button>
+                        </div>
+                        <button id="btn-apply-attr">应用属性</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -223,6 +308,17 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- 导出范围选择对话框 -->
+    <div id="export-dialog" class="modal hidden">
+        <div class="export-dialog-content">
+            <div class="export-dialog-header">
+                <span id="export-dialog-title">选择导出范围</span>
+                <button id="export-dialog-close" class="modal-close">×</button>
+            </div>
+            <div class="export-dialog-body" id="export-dialog-options"></div>
         </div>
     </div>
 

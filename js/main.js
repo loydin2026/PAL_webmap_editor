@@ -76,6 +76,9 @@ const App = (function () {
       await UI.loadMapByName(defaultMap);
     }
 
+    // 5. 自动加载 SSS.MKF 事件
+    UI.autoLoadSssMkf();
+
     UI.updateStatus('就绪');
   }
 
@@ -101,8 +104,10 @@ const App = (function () {
     return list.sort();
   }
 
-  function mainLoop() {
+  function mainLoop(timestamp) {
     if (!isRunning) return;
+
+    Editor.updateAnimation(timestamp);
 
     const tiles = UI.getTiles();
     const miniTiles = UI.getMiniTiles();
@@ -133,7 +138,15 @@ const App = (function () {
         Editor.mouseImg,
         Editor.selImg,
         UI.getPreviewTemplate(),
-        UI.getPreviewPos()
+        UI.getPreviewPos(),
+        Editor.getShowEvents(),
+        Editor.eventImg,
+        Editor.getEvents(),
+        Editor.getSelectedEventId(),
+        Editor.getShowGrid(),
+        Editor.getShowEventChar(),
+        Editor.getCharImage,
+        Editor.loadCharImage
       );
     } else {
       // 没有图块，显示提示

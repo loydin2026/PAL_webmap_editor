@@ -118,9 +118,10 @@ const Renderer = (function () {
   // objectImg: 人物对象的 ImageData
   // mouseTile: {x, y} 鼠标悬停的 Tile
   // selTiles: Array<{x, y}> 选中的 Tile 列表
+  // events: Array<Event> 事件对象列表
   function renderMap(cameraX, cameraY, zoom, tiles, showL0, showL1, showBarrier, showObject, objectImg,
                      mouseTile, selTiles, barrierImg, mouseImg, selImg,
-                     previewTemplate, previewPos) {
+                     previewTemplate, previewPos, showEvent, eventImg, events, selectedEventId, showGrid, showEventChar, getCharImage, loadCharImage) {
     const ctx = backCtx;
     const cw = backCanvas.width;
     const ch = backCanvas.height;
@@ -231,24 +232,100 @@ const Renderer = (function () {
       }
     }
 
-    // 绘制鼠标悬停标记
-    if (mouseTile && MapModule.assert(mouseTile.x, mouseTile.y)) {
-      const px = MapModule.tileToPixel(mouseTile.x, mouseTile.y).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
-      const py = MapModule.tileToPixel(mouseTile.x, mouseTile.y).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
-      if (mouseImg) {
-        drawTileImage(ctx, px * zoom, py * zoom, mouseImg, zoom);
+    // 绘制事件标记
+    if (showEvent && events && events.length > 0) {
+      for (const ev of events) {
+        if (!MapModule.assert(ev.x, ev.y)) continue;
+        const px = MapModule.tileToPixel(ev.x, ev.y).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
+        const py = MapModule.tileToPixel(ev.x, ev.y).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
+        if (px * zoom + TILE_W * zoom < 0 || py * zoom + TILE_H * zoom < 0 || px * zoom >= cw || py * zoom >= ch) continue;
+
+        // 事件标记图片（选中时闪烁动画，未选中时固定不透明）
+        if (eventImg) {
+          const isSelected = ev.id === selectedEventId;
+          ctx.save();
+          if (isSelected) {
+            const pulse = (Math.sin(Date.now() / 300) + 1) / 2;
+            ctx.globalAlpha = pulse;
+          }
+          drawTileImage(ctx, px * zoom, py * zoom, eventImg, zoom);
+          ctx.restore();
+        }
+
+        // 事件人物图像（缩放 200%，底对齐，direction * frames + currFrame + 1 = 图片后缀）
+        if (showEventChar && ev.image > 0) {
+          const dir = Math.max(0, ev.direction);
+          let suffix;
+          if (ev.frames === 0) {
+            // frames=0 时固定显示第 1 帧（id-1），不播放动画
+            suffix = 1;
+          } else {
+            const effectiveFrames = Math.max(1, ev.frames);
+            const frame = Math.max(0, Math.min(ev.currFrame || 0, effectiveFrames - 1));
+            suffix = dir * effectiveFrames + frame + 1;
+          }
+          let charImg = getCharImage ? getCharImage(ev.image, suffix) : null;
+          if (!charImg && loadCharImage) {
+            loadCharImage(ev.image, suffix);
+          }
+          if (charImg && charImg.naturalWidth > 0) {
+            const charW = charImg.naturalWidth * zoom * 2;
+            const charH = charImg.naturalHeight * zoom * 2;
+            const charX = px * zoom + TILE_HALF_W * zoom - charW / 2;
+            const charY = py * zoom + TILE_H * zoom - charH;
+            ctx.drawImage(charImg, charX, charY, charW, charH);
+          }
+        }
+
+        // 事件 ID 标签
+        const cx = px * zoom + TILE_HALF_W * zoom;
+        const cy = py * zoom + TILE_HALF_H * zoom;
+        ctx.fillStyle = ev.id === selectedEventId ? '#2ecc71' : '#ffffff';
+        ctx.font = 'bold 14px Microsoft YaHei';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(ev.id.toString(), cx, cy);
       }
     }
 
-    // 绘制选中标记（所有选中的 tile）
+    // 绘制鼠标悬停标记（蓝色菱形边框，与选中统一）
+    if (mouseTile && MapModule.assert(mouseTile.x, mouseTile.y)) {
+      const px = MapModule.tileToPixel(mouseTile.x, mouseTile.y).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
+      const py = MapModule.tileToPixel(mouseTile.x, mouseTile.y).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
+      const cx = px * zoom + TILE_HALF_W * zoom;
+      const cy = py * zoom + TILE_HALF_H * zoom;
+      const hw = TILE_HALF_W * zoom;
+      const hh = TILE_HALF_H * zoom;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - hh);
+      ctx.lineTo(cx + hw, cy);
+      ctx.lineTo(cx, cy + hh);
+      ctx.lineTo(cx - hw, cy);
+      ctx.closePath();
+      ctx.strokeStyle = 'rgba(100, 150, 255, 0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    // 绘制选中标记（所有选中的 tile，统一蓝色菱形边框）
     if (selTiles && selTiles.length > 0) {
       for (const st of selTiles) {
         if (MapModule.assert(st.x, st.y)) {
           const px = MapModule.tileToPixel(st.x, st.y).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
           const py = MapModule.tileToPixel(st.x, st.y).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
-          if (selImg) {
-            drawTileImage(ctx, px * zoom, py * zoom, selImg, zoom);
-          }
+          const cx = px * zoom + TILE_HALF_W * zoom;
+          const cy = py * zoom + TILE_HALF_H * zoom;
+          const hw = TILE_HALF_W * zoom;
+          const hh = TILE_HALF_H * zoom;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - hh);
+          ctx.lineTo(cx + hw, cy);
+          ctx.lineTo(cx, cy + hh);
+          ctx.lineTo(cx - hw, cy);
+          ctx.closePath();
+          ctx.strokeStyle = 'rgba(100, 150, 255, 0.9)';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
         }
       }
     }
@@ -256,16 +333,29 @@ const Renderer = (function () {
     // 绘制模板预览（30% 半透明）
     if (previewTemplate && previewPos && tiles) {
       ctx.save();
-      ctx.globalAlpha = 0.3;
+      ctx.globalAlpha = 0.5;
       const baseParity = (previewTemplate.baseParity !== undefined ? previewTemplate.baseParity : 0) & 1;
       const destParity = previewPos.x & 1;
+      const centerX = Math.floor(previewTemplate.w / 2);
+      const centerY = Math.floor(previewTemplate.h / 2);
+      const effectiveDestParity = (destParity - (centerX & 1) + 2) & 1;
+
+      // 计算中心 tile 会被补偿多少，预偏移所有 tile 使中心 tile 精确落在鼠标位置
+      let centerComp = 0;
+      if (baseParity !== effectiveDestParity) {
+        const centerAbsParity = (baseParity + centerX) & 1;
+        if (centerAbsParity === effectiveDestParity) {
+          centerComp = effectiveDestParity - baseParity;
+        }
+      }
+
       for (const t of previewTemplate.tiles) {
-        let tx = previewPos.x + t.x;
-        let ty = previewPos.y + t.y;
-        if (baseParity !== destParity) {
+        let tx = previewPos.x + t.x - centerX;
+        let ty = previewPos.y + t.y - centerY - centerComp;
+        if (baseParity !== effectiveDestParity) {
           const absParity = (baseParity + t.x) & 1;
-          if (absParity === destParity) {
-            ty += (destParity - baseParity);
+          if (absParity === effectiveDestParity) {
+            ty += (effectiveDestParity - baseParity);
           }
         }
         if (!MapModule.assert(tx, ty)) continue;
@@ -293,6 +383,49 @@ const Renderer = (function () {
         if (t.barrier) drawTileImage(ctx, px * zoom, py * zoom, barrierImg, zoom);
       }
       ctx.restore();
+    }
+
+    // 绘制网格
+    if (showGrid) {
+      ctx.strokeStyle = 'rgba(100, 200, 255, 0.35)';
+      ctx.lineWidth = 1;
+      for (let ly = 0; ly < viewH; ly++) {
+        for (let lx = 0; lx < viewW; lx++) {
+          const tx = cameraX + lx;
+          const ty = cameraY + ly;
+          if (!MapModule.assert(tx, ty)) continue;
+          const px = MapModule.tileToPixel(tx, ty).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
+          const py = MapModule.tileToPixel(tx, ty).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
+          if (px * zoom + TILE_W * zoom < 0 || py * zoom + TILE_H * zoom < 0 || px * zoom >= cw || py * zoom >= ch) continue;
+
+          const cx = px * zoom + TILE_HALF_W * zoom;
+          const cy = py * zoom + TILE_HALF_H * zoom;
+          const hw = TILE_HALF_W * zoom;
+          const hh = TILE_HALF_H * zoom;
+
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - hh);
+          ctx.lineTo(cx + hw, cy);
+          ctx.lineTo(cx, cy + hh);
+          ctx.lineTo(cx - hw, cy);
+          ctx.closePath();
+          ctx.stroke();
+
+          // 在每个格子中心绘制坐标 (x,y)
+          const coordText = `(${tx},${ty})`;
+          ctx.save();
+          const fontSize = Math.max(4, Math.min(14, 10 * zoom));
+          ctx.font = `bold ${fontSize}px Microsoft YaHei, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.strokeStyle = 'rgba(0, 0, 0, 0.65)';
+          ctx.lineWidth = 2;
+          ctx.strokeText(coordText, cx, cy);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+          ctx.fillText(coordText, cx, cy);
+          ctx.restore();
+        }
+      }
     }
 
     // 拷贝到主 Canvas

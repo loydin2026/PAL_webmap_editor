@@ -331,6 +331,7 @@ const TemplateEditor = (function() {
     if (keys.length === 0) {
       // 没有任何数据，恢复默认 2x2 边界
       minX = 0; maxX = 1; minY = 0; maxY = 1;
+      baseParity = 0;
       return;
     }
     let newMinX = Infinity, newMaxX = -Infinity, newMinY = Infinity, newMaxY = -Infinity;
@@ -342,6 +343,7 @@ const TemplateEditor = (function() {
       newMaxY = Math.max(newMaxY, y);
     }
     minX = newMinX; maxX = newMaxX; minY = newMinY; maxY = newMaxY;
+    // baseParity 是模板的固有属性，编辑过程中保持不变（只在 open 时从模板加载）
   }
 
   function undo() {
@@ -409,7 +411,7 @@ const TemplateEditor = (function() {
         const py = offsetY + p.y;
 
         // 视口裁剪
-        if (px + 32 < 0 || px - 32 > canvasW || py + 15 < 0 || py - 15 > canvasH) continue;
+        if (px + 32 < 0 || px - 32 > canvasW || py + 16 < 0 || py - 16 > canvasH) continue;
 
         tilePositions.push({ tx, ty, px, py });
 
@@ -418,14 +420,8 @@ const TemplateEditor = (function() {
         const inR = tx >= minX && tx <= maxX && ty >= minY && ty <= maxY;
         const isOrigin = tx === 0 && ty === 0;
 
-        // 菱形暗色网格
-        if (isOrigin) {
-          drawDiamond(ctx, px, py, 64, 30, 'rgba(43, 138, 238, 0.5)', 'rgba(43, 138, 238, 0.15)');
-        } else if (inR) {
-          drawDiamond(ctx, px, py, 64, 30, 'rgba(255,255,255,0.10)');
-        } else {
-          drawDiamond(ctx, px, py, 64, 30, 'rgba(255,255,255,0.04)');
-        }
+        // 菱形网格线（仅描边，无填充），只显示网格线，不显示边界提示
+        drawDiamond(ctx, px, py, 64, 32, 'rgba(255,255,255,0.15)', null);
 
         // 绘制图块数据
         if (t && (gopTiles || editorTileImages)) {
@@ -433,37 +429,33 @@ const TemplateEditor = (function() {
             const i0 = t.layer0;
             const img0 = editorTileImages && editorTileImages[i0] ? editorTileImages[i0]
               : (gopTiles && i0 >= 0 && i0 < gopTiles.length ? gopTiles[i0] : null);
-            if (img0) drawImg(ctx, px - 32, py - 15, img0);
+            if (img0) drawImg(ctx, px - 32, py - 16, img0);
           }
           if (showL1 && t.layer1 > 0) {
             const i1 = t.layer1 - 1;
             const img1 = editorTileImages && editorTileImages[i1] ? editorTileImages[i1]
               : (gopTiles && i1 >= 0 && i1 < gopTiles.length ? gopTiles[i1] : null);
-            if (img1) drawImg(ctx, px - 32, py - 15, img1);
+            if (img1) drawImg(ctx, px - 32, py - 16, img1);
           }
-          if (t.barrier) drawImg(ctx, px - 32, py - 15, Editor.barrierImg);
+          if (t.barrier) drawImg(ctx, px - 32, py - 16, Editor.barrierImg);
         }
       }
     }
 
-    // 鼠标悬停提示
+    // 鼠标悬停提示（绿色菱形）
     if (mouseTileX >= 0 && mouseTileY >= 0) {
       const p = MapModule.tileToPixel(mouseTileX + baseParity, mouseTileY);
       const px = offsetX + p.x;
       const py = offsetY + p.y;
-      if (Editor.mouseImg) {
-        drawImg(ctx, px - 32, py - 15, Editor.mouseImg);
-      }
+      drawDiamond(ctx, px, py, 64, 32, 'rgba(0, 255, 0, 0.75)', 'rgba(0, 255, 0, 0.25)');
     }
 
-    // 选中提示
+    // 选中提示（黄色菱形）
     if (selTileX >= 0 && selTileY >= 0) {
       const p = MapModule.tileToPixel(selTileX + baseParity, selTileY);
       const px = offsetX + p.x;
       const py = offsetY + p.y;
-      if (Editor.selImg) {
-        drawImg(ctx, px - 32, py - 15, Editor.selImg);
-      }
+      drawDiamond(ctx, px, py, 64, 32, 'rgba(255, 220, 0, 0.8)', 'rgba(255, 220, 0, 0.2)');
     }
   }
 

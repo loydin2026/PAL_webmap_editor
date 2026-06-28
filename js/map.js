@@ -95,20 +95,40 @@ const MapModule = (function () {
 
   // 像素坐标 -> Tile 坐标
   function pixelToTile(px, py) {
-    const yt = ((py % 32) + 32) % 32;
-    const a = hSegmentTable[yt];
-    const b = 64 - a;
-    let xt = px - Math.floor(b / 2);
-    const tileX = calcSegmentPointAtLine(xt, a, b);
+    let tx = Math.floor(px / 32);
+    let ty = Math.floor((py - (tx % 2) * 16) / 32);
 
-    const xt2 = ((px % 64) + 64) % 64;
-    const a2 = vSegmentTable[xt2];
-    const b2 = 30 - a2;
-    const yt2 = py - Math.floor(b2 / 2);
-    // C++ 的 (yt - yt % 32) / 32 对于负数是向零截断，不是 floor
-    const tileY = yt2 < 0 ? Math.ceil(yt2 / 32) : Math.floor(yt2 / 32);
+    // 先检查初始估计 tile，再检查 3x3 邻域
+    if (isPointInTile(px, py, tx, ty)) {
+      return { x: tx, y: ty };
+    }
 
-    return { x: tileX, y: tileY };
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        const cx = tx + dx;
+        const cy = ty + dy;
+        if (isPointInTile(px, py, cx, cy)) {
+          return { x: cx, y: cy };
+        }
+      }
+    }
+
+    return { x: tx, y: ty };
+  }
+
+  function isPointInTile(px, py, tx, ty) {
+    const centerX = tx * 32;
+    const centerY = ty * 32 + (tx % 2) * 16;
+    const dx = px - centerX;
+    const dy = py - centerY;
+
+    const dyIdx = Math.floor(dy + 15);
+    if (dyIdx < 0 || dyIdx >= 32) return false;
+
+    // hSegmentTable 是原始碰撞盒数据（半宽为渲染菱形的 2 倍），取一半以匹配 64x30 渲染菱形
+    const halfWidth = hSegmentTable[dyIdx] / 2;
+    return Math.abs(dx) <= halfWidth + 0.5;
   }
 
   // Tile 坐标 -> 像素坐标（左上角）
@@ -117,17 +137,26 @@ const MapModule = (function () {
   }
 
   // 计算相邻 Tile 坐标
-  // 方向：1=东(右下), 2=南(左下), 3=西(左上), 4=北(右上)
+  // 方向：1=东(右下), 2=南(左下), 3=西(左上), 4=北(右上), 5=上, 6=下, 7=左(奇x), 8=右(奇x)
   function getNeighborTile(tx, ty, direction) {
+    const isOdd = (tx % 2 !== 0);
     switch (direction) {
       case 1:
-        return tx % 2 === 0 ? { x: tx + 1, y: ty } : { x: tx + 1, y: ty + 1 };
+        return isOdd ? { x: tx + 1, y: ty + 1 } : { x: tx + 1, y: ty };
       case 2:
-        return tx % 2 === 0 ? { x: tx - 1, y: ty } : { x: tx - 1, y: ty + 1 };
+        return isOdd ? { x: tx - 1, y: ty + 1 } : { x: tx - 1, y: ty };
       case 3:
-        return tx % 2 === 0 ? { x: tx - 1, y: ty - 1 } : { x: tx - 1, y: ty };
+        return isOdd ? { x: tx - 1, y: ty } : { x: tx - 1, y: ty - 1 };
       case 4:
-        return tx % 2 === 0 ? { x: tx + 1, y: ty - 1 } : { x: tx + 1, y: ty };
+        return isOdd ? { x: tx + 1, y: ty } : { x: tx + 1, y: ty - 1 };
+      case 5:
+        return { x: tx, y: ty - 1 };
+      case 6:
+        return { x: tx, y: ty + 1 };
+      case 7:
+        return { x: tx - 2, y: ty };
+      case 8:
+        return { x: tx + 2, y: ty };
       default:
         return { x: tx, y: ty };
     }
@@ -172,27 +201,30 @@ const MapModule = (function () {
   }
 
   function loadMap(buffer) {
-    // 地图文件: 128*128*2*2 = 65536 bytes map + 65536 bytes template
-    const data = new Uint8Array(buffer);
-    const view = new DataView(buffer);
     const total = MAP_WIDTH * MAP_HEIGHT * MAP_LAYERS;
+    const mapBytes = total * 2; // 65536 bytes
+    const view = new DataView(buffer);
+    // 读取 mapData（前半部分）
     for (let i = 0; i < total; i++) {
       mapData[i] = view.getUint16(i * 2, true);
     }
-    for (let i = 0; i < total; i++) {
-      templateData[i] = view.getUint16(total * 2 + i * 2, true);
+    // 如果文件大于 65536 字节，读取 templateData；否则 templateData 清零
+    if (buffer.byteLength >= mapBytes * 2) {
+      for (let i = 0; i < total; i++) {
+        templateData[i] = view.getUint16(mapBytes + i * 2, true);
+      }
+    } else {
+      templateData.fill(0);
     }
   }
 
   function saveMap() {
     const total = MAP_WIDTH * MAP_HEIGHT * MAP_LAYERS;
-    const buffer = new ArrayBuffer(total * 2 * 2);
+    // PAL 标准 MAP 文件只有 65536 字节（mapData），不写 templateData
+    const buffer = new ArrayBuffer(total * 2);
     const view = new DataView(buffer);
     for (let i = 0; i < total; i++) {
       view.setUint16(i * 2, mapData[i], true);
-    }
-    for (let i = 0; i < total; i++) {
-      view.setUint16(total * 2 + i * 2, templateData[i], true);
     }
     return buffer;
   }
