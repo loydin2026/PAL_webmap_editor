@@ -776,12 +776,7 @@ function bindDraggablePanel() {
       const pal = PaletteModule.getPalette();
       if (!pal) { updateStatus('错误：调色板未加载'); return; }
       const gop = await GopLoader.load('./gop/' + name, pal);
-      gopCache[name] = {
-        tiles: gop.tiles,
-        miniTiles: gop.miniTiles,
-        rawTileData: gop.rawTileData,
-        modified: false
-      };
+      gopCache[name] = { tiles: gop.tiles, miniTiles: gop.miniTiles };
       tiles = gop.tiles; miniTiles = gop.miniTiles;
       gopFileName = name;
       buildTileGrid();
@@ -1357,15 +1352,13 @@ function bindDraggablePanel() {
           return;
         }
         try {
-          let buffer;
-          if (gopCache[gopFileName] && gopCache[gopFileName].rawTileData) {
-            // 有原始 RLE 数据，直接拼接，不重新编码（字节级一致）
-            buffer = GopLoader.encodeGOPFromRaw(gopCache[gopFileName].rawTileData);
-          } else {
-            // 没有原始数据，回退到重新编码
-            buffer = GopLoader.encodeGOP(tiles, pal);
-          }
-          const blob = new Blob([buffer], { type: 'application/octet-stream' });
+          const buffer = GopLoader.encodeGOP(tiles, pal);
+          const rawData = new Uint8Array(buffer);
+          const prefixed = new Uint8Array(4 + rawData.length);
+          const dv = new DataView(prefixed.buffer);
+          dv.setUint32(0, rawData.length, true);
+          prefixed.set(rawData, 4);
+          const blob = new Blob([prefixed.buffer], { type: 'application/octet-stream' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
@@ -2115,12 +2108,6 @@ function bindDraggablePanel() {
     // 检查是否已在本图组中适配过
     if (tpl._adaptedFor === gopFileName) return tpl;
 
-    // 确保当前 GOP 缓存有 rawTileData
-    if (!gopCache[gopFileName].rawTileData) {
-      gopCache[gopFileName].rawTileData = [];
-    }
-    const currentRawTileData = gopCache[gopFileName].rawTileData;
-
     const usedIds = new Set();
     for (const t of tpl.tiles) {
       if (t.layer0 >= 0) usedIds.add(t.layer0);
@@ -2143,17 +2130,12 @@ function bindDraggablePanel() {
 
       // 优先从源 GOP 加载（确保使用当前色板），否则回退到模板缓存
       let sourceImage = null;
-      let sourceRawTile = null;
       let sourceGopData = gopCache[tpl.sourceGop];
       if (!sourceGopData && tpl.sourceGop !== gopFileName) {
         try {
           const pal = PaletteModule.getPalette();
           const gop = await GopLoader.load('./gop/' + tpl.sourceGop, pal);
-          sourceGopData = {
-            tiles: gop.tiles,
-            miniTiles: gop.miniTiles,
-            rawTileData: gop.rawTileData
-          };
+          sourceGopData = { tiles: gop.tiles, miniTiles: gop.miniTiles };
           gopCache[tpl.sourceGop] = sourceGopData;
         } catch (e) {
           updateStatus('无法加载源图组 ' + tpl.sourceGop + '，回退到模板缓存');
@@ -2161,9 +2143,6 @@ function bindDraggablePanel() {
       }
       if (sourceGopData && oldId < sourceGopData.tiles.length) {
         sourceImage = sourceGopData.tiles[oldId];
-        if (sourceGopData.rawTileData && oldId < sourceGopData.rawTileData.length) {
-          sourceRawTile = sourceGopData.rawTileData[oldId];
-        }
       } else if (tpl.tileImages && tpl.tileImages[oldId]) {
         sourceImage = TemplateEditor.base64ToImageData(tpl.tileImages[oldId]);
       }
@@ -2175,15 +2154,6 @@ function bindDraggablePanel() {
 
       currentTiles.push(sourceImage);
       currentMiniTiles.push(sourceImage); // 缩略图直接用原图
-      // 同时复制原始 RLE 数据（导出时直接拼接，不重新编码）
-      if (sourceRawTile) {
-        const copy = new Uint8Array(sourceRawTile.length);
-        copy.set(sourceRawTile);
-        currentRawTileData.push(copy);
-      } else {
-        // 如果没有原始 RLE 数据（如从模板缓存加载），用空占位
-        currentRawTileData.push(new Uint8Array(0));
-      }
       const newId = currentTiles.length - 1;
       idMap.set(oldId, newId);
       crossGopImportMap.set(cacheKey, newId);
@@ -2193,7 +2163,6 @@ function bindDraggablePanel() {
     if (importedCount > 0) {
       buildTileGrid();
       updateStatus('已导入 ' + importedCount + ' 个新图块到当前图组');
-      if (gopCache[gopFileName]) gopCache[gopFileName].modified = true;
     }
 
     const newTiles = tpl.tiles.map(t => ({
@@ -2361,26 +2330,26 @@ function bindDraggablePanel() {
       const palette = PaletteModule.getPalette();
       const subfiles = [];
       for (const name of gopList) {
-        if (gopCache[name] && gopCache[name].modified) {
-          // 已加载且被修改（跨组导入等），从原始 RLE 数据直接拼接，不重新编码
-          const encoded = GopLoader.encodeGOPFromRaw(gopCache[name].rawTileData);
+        if (gopCache[name] && gopCache[name].tiles) {
+          // 已加载到内存，重新编码（包含跨组导入的新图块）
+          const encoded = GopLoader.encodeGOP(gopCache[name].tiles, palette);
           subfiles.push(new Uint8Array(encoded));
         } else {
-         // 未修改或未被加载，直接使用原始文件(去掉可能的前缀）
+          // 未加载过，直接使用原始文件
           const res = await fetch('./gop/' + name);
           if (!res.ok) {
             console.warn('GOP 文件获取失败:', name);
-           subfiles.push(new Uint8Array(0));
+            subfiles.push(new Uint8Array(0));
             continue;
-         }          
-const buf = await res.arrayBuffer();
+          }
+          const buf = await res.arrayBuffer();
           let data = new Uint8Array(buf);
-         // 检测并去掉外部工具（如旧版 cut.exe）添加的 4 字节长度前缀
+          // 检测并去掉外部工具（如旧版 cut.exe）添加的 4 字节长度前缀
           if (data.length > 4) {
-            const prefix = new DataView(data.buffer).getUint32(0, true);
-            if (prefix === data.length - 4) {
-              console.log('exportGopToMkf:', name, 'stripping 4-byte prefix:', prefix);
-              data = data.slice(4);
+            const dv = new DataView(data.buffer, data.byteOffset, 4);
+            const prefixLen = dv.getUint32(0, true);
+            if (prefixLen === data.length - 4) {
+              data = new Uint8Array(data.slice(4));
             }
           }
           subfiles.push(data);

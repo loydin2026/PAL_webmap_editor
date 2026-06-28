@@ -31,7 +31,7 @@ const GopLoader = (function () {
     let i = 0;
     while (i < dwLen && offset < data.length) {
       const T = data[offset++];
-      if (0x80 < T && T <= 0x80 + width) {
+      if (T > 0x80) {
         // 跳过 T - 0x80 个像素
         i += T - 0x80;
       } else {
@@ -134,6 +134,7 @@ const GopLoader = (function () {
 
     const tiles = [];
     const miniTiles = [];
+    const rawTileData = [];
 
     for (let i = 0; i < imageCount; i++) {
       const offset = offsets[i];
@@ -141,8 +142,12 @@ const GopLoader = (function () {
       const tileData = imageCode.slice(offset, nextOffset);
       if (tileData.length === 0) {
         console.warn('GOP Tile', i, 'has empty data, skipping');
+        rawTileData.push(new Uint8Array(0));
         continue;
       }
+
+      // 保存原始 RLE 数据，供导出时直接复制
+      rawTileData.push(tileData);
 
       const { width, height, buffer: decoded } = decodeRLE(tileData, 32 * 15);
       if (!width || !height || width <= 0 || height <= 0) {
@@ -159,7 +164,7 @@ const GopLoader = (function () {
       miniTiles.push(createMiniImage(scaled));
     }
 
-    return { imageCount, tiles, miniTiles };
+    return { imageCount, tiles, miniTiles, rawTileData };
   }
 
   async function load(url, palette) {
@@ -315,9 +320,7 @@ const GopLoader = (function () {
 
   function rleEncode(indices, width, height) {
     const result = [];
-    // 添加 0x00000002 前缀
-    result.push(0x02, 0x00, 0x00, 0x00);
-    // 写入 width 和 height
+    // 写入 width 和 height（原始 GOP 没有 0x02 前缀）
     result.push(width & 0xFF, (width >> 8) & 0xFF);
     result.push(height & 0xFF, (height >> 8) & 0xFF);
 
@@ -328,7 +331,7 @@ const GopLoader = (function () {
       if (indices[i] === 0xFF) {
         // 跳过透明像素
         let skip = 0;
-        while (i < total && indices[i] === 0xFF && skip < width) {
+        while (i < total && indices[i] === 0xFF) {
           skip++;
           i++;
         }
@@ -345,9 +348,7 @@ const GopLoader = (function () {
           i++;
         }
 
-        // 检查 copy 值是否在跳过范围（0x81-0x80+width）内
         if (copy >= 0x81 && copy <= 0x80 + width) {
-          // 拆分为两个复制命令
           const split = copy - 1;
           result.push(split);
           for (let j = 0; j < split; j++) result.push(copyData[j]);
@@ -363,6 +364,63 @@ const GopLoader = (function () {
     return new Uint8Array(result);
   }
 
+  // 从原始 RLE 数据直接构建 GOP 文件（不做重新编码，保持字节级一致）
+  function encodeGOPFromRaw(rawTileData) {
+    if (!rawTileData || rawTileData.length === 0) throw new Error('没有原始图块数据');
+
+    const imageCount = rawTileData.length;
+    const countPlus1 = imageCount + 1;
+    const offsetTableSize = countPlus1 * 2;
+
+    let currentOffset = offsetTableSize;
+    const offsets = [currentOffset];
+    const allData = [];
+
+    for (let i = 0; i < imageCount; i++) {
+      const tileData = rawTileData[i];
+      allData.push(tileData);
+      currentOffset += tileData.length;
+      // 确保偶数偏移
+      if (currentOffset % 2 !== 0) {
+        allData.push(new Uint8Array([0x00]));
+        currentOffset++;
+      }
+      offsets.push(currentOffset);
+    }
+
+    // 原始 GOP 格式：偏移表最后一个条目为 0（与原始 GOP 子文件保持一致）
+    offsets[offsets.length - 1] = 0;
+
+    // 构建 imageCode
+    const imageCodeLen = offsetTableSize + allData.reduce((sum, d) => sum + d.length, 0);
+    const imageCode = new Uint8Array(imageCodeLen);
+    const dv = new DataView(imageCode.buffer);
+
+    // 写入 count_plus_1 / offsets[0]
+    dv.setUint16(0, countPlus1, true);
+
+    // 写入偏移表
+    for (let i = 0; i < countPlus1; i++) {
+      dv.setUint16(i * 2, offsets[i] / 2, true);
+    }
+
+    // 写入 tile 数据
+    let pos = offsetTableSize;
+    for (const data of allData) {
+      imageCode.set(data, pos);
+      pos += data.length;
+    }
+
+    // 构建完整文件
+    const dwLen = imageCode.length;
+    const file = new Uint8Array(4 + dwLen);
+    const fileDv = new DataView(file.buffer);
+    fileDv.setUint32(0, dwLen, true);
+    file.set(imageCode, 4);
+
+    return file.buffer;
+  }
+
   return {
     load,
     loadFromFile,
@@ -370,5 +428,6 @@ const GopLoader = (function () {
     decodeRLE,
     scaleImageData,
     encodeGOP,
+    encodeGOPFromRaw,
   };
 })();

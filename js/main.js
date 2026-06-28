@@ -42,6 +42,56 @@ const App = (function () {
     }
   }
 
+  // 检测 GOP 文件是否被 4 字节前缀污染
+  async function detectGopPollution(gopList) {
+    const polluted = [];
+    for (const name of gopList) {
+      const res = await fetch('./gop/' + name);
+      if (!res.ok) continue;
+      const buf = await res.arrayBuffer();
+      const data = new Uint8Array(buf);
+      if (data.length > 4) {
+        const prefix = new DataView(data.buffer).getUint32(0, true);
+        if (prefix === data.length - 4) {
+          polluted.push(name);
+        }
+      }
+    }
+    return polluted;
+  }
+
+  // 生成 Node.js 清理脚本
+  function generateCleanScript() {
+    return `const fs = require('fs');
+const path = require('path');
+
+const gopDir = path.join(__dirname, 'gop');
+
+function cleanFile(filePath) {
+    const data = fs.readFileSync(filePath);
+    if (data.length > 4) {
+        const prefix = data.readUInt32LE(0);
+        if (prefix === data.length - 4) {
+            fs.writeFileSync(filePath, data.slice(4));
+            console.log('已清理:', path.basename(filePath), '去掉前缀', prefix);
+            return true;
+        }
+    }
+    console.log('跳过 (无前缀):', path.basename(filePath));
+    return false;
+}
+
+let count = 0;
+for (const f of fs.readdirSync(gopDir)) {
+    if (f.startsWith('gop')) {
+        const cleaned = cleanFile(path.join(gopDir, f));
+        if (cleaned) count++;
+    }
+}
+console.log('\\n总共清理了', count, '个文件。请刷新页面。');
+`;
+  }
+
   // 自动加载所有资源
   async function autoLoadResources() {
     // 1. 加载调色板
@@ -56,6 +106,12 @@ const App = (function () {
     const mapList = await scanFileList('./map/map', 0, 230);
     console.log('GOP 文件:', gopList.length, '个');
     console.log('MAP 文件:', mapList.length, '个');
+
+    // 2.5 检测 GOP 文件污染（仅日志提示，不下载脚本）
+    const polluted = await detectGopPollution(gopList);
+    if (polluted.length > 0) {
+      console.warn('检测到', polluted.length, '个 GOP 文件被 4 字节前缀污染。导出时自动去掉前缀。');
+    }
 
     // 填充下拉列表
     UI.fillGopSelect(gopList);
@@ -93,7 +149,7 @@ const App = (function () {
       promises.push(
         fetch(url, { method: 'HEAD' })
           .then(res => {
-            if (res.ok && res.headers.get('content-length') !== '0') {
+            if (res.ok) {
               list.push(fileName);
             }
           })
