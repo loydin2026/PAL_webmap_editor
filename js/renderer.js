@@ -256,11 +256,12 @@ const Renderer = (function () {
         if (showEventChar && ev.image > 0) {
           const dir = Math.max(0, ev.direction);
           let suffix;
-          if (ev.frames === 0) {
-            // frames=0 时固定显示第 1 帧（id-1），不播放动画
+          // 决定有效帧数：frames > 0 时用 frames，否则 framesAuto > 0 时用 framesAuto
+          const effectiveFrames = ev.frames > 0 ? ev.frames : (ev.framesAuto > 0 ? ev.framesAuto : 0);
+          if (effectiveFrames <= 0) {
+            // 无帧动画时固定显示第 1 帧
             suffix = 1;
           } else {
-            const effectiveFrames = Math.max(1, ev.frames);
             const frame = Math.max(0, Math.min(ev.currFrame || 0, effectiveFrames - 1));
             suffix = dir * effectiveFrames + frame + 1;
           }
@@ -285,6 +286,46 @@ const Renderer = (function () {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(ev.id.toString(), cx, cy);
+
+        // 绘制移动路径（从 autoScript 解析，形成闭环）
+        if (typeof Editor !== 'undefined' && ev.autoScript > 0) {
+          const path = Editor.getEventMovePath(ev.id);
+          if (path && path.length > 0) {
+            ctx.save();
+            ctx.strokeStyle = ev.id === selectedEventId ? '#2ecc71' : '#ff9900';
+            ctx.lineWidth = 2 * zoom;
+            ctx.setLineDash([6 * zoom, 4 * zoom]);
+            ctx.beginPath();
+            // 从第一个路径点开始，依次连接所有路径点
+            let first = true;
+            for (const pt of path) {
+              if (MapModule.assert(pt.x, pt.y)) {
+                const tpx = MapModule.tileToPixel(pt.x, pt.y).x - MapModule.tileToPixel(cameraX, cameraY).x;
+                const tpy = MapModule.tileToPixel(pt.x, pt.y).y - MapModule.tileToPixel(cameraX, cameraY).y;
+                if (first) {
+                  ctx.moveTo(tpx * zoom, tpy * zoom);
+                  first = false;
+                } else {
+                  ctx.lineTo(tpx * zoom, tpy * zoom);
+                }
+                // 绘制路径点标记
+                ctx.fillStyle = ev.id === selectedEventId ? '#2ecc71' : '#ff9900';
+                ctx.fillRect(tpx * zoom - 3 * zoom, tpy * zoom - 3 * zoom, 6 * zoom, 6 * zoom);
+              }
+            }
+            // 闭环：最后一个路径点连回第一个
+            if (!first && path.length > 1) {
+              const firstPt = path[0];
+              if (MapModule.assert(firstPt.x, firstPt.y)) {
+                const fpx = MapModule.tileToPixel(firstPt.x, firstPt.y).x - MapModule.tileToPixel(cameraX, cameraY).x;
+                const fpy = MapModule.tileToPixel(firstPt.x, firstPt.y).y - MapModule.tileToPixel(cameraX, cameraY).y;
+                ctx.lineTo(fpx * zoom, fpy * zoom);
+              }
+            }
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
       }
     }
 

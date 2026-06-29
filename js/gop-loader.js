@@ -232,6 +232,8 @@ const GopLoader = (function () {
       }
       offsets.push(currentOffset);
     }
+    // 原始 GOP 格式：偏移表最后一个条目为 0（与原始 GOP 子文件保持一致）
+    offsets[offsets.length - 1] = 0;
 
     // 构建 imageCode
     const imageCodeLen = offsetTableSize + allData.reduce((sum, d) => sum + d.length, 0);
@@ -253,14 +255,8 @@ const GopLoader = (function () {
       pos += data.length;
     }
 
-    // 构建完整文件
-    const dwLen = imageCode.length;
-    const file = new Uint8Array(4 + dwLen);
-    const fileDv = new DataView(file.buffer);
-    fileDv.setUint32(0, dwLen, true);
-    file.set(imageCode, 4);
-
-    return file.buffer;
+    // 返回无 4 字节前缀的 sprite 数据（MKF 归档子文件不需要前缀）
+    return imageCode.buffer;
   }
 
   function shrinkImageData(src, scale) {
@@ -411,14 +407,8 @@ const GopLoader = (function () {
       pos += data.length;
     }
 
-    // 构建完整文件
-    const dwLen = imageCode.length;
-    const file = new Uint8Array(4 + dwLen);
-    const fileDv = new DataView(file.buffer);
-    fileDv.setUint32(0, dwLen, true);
-    file.set(imageCode, 4);
-
-    return file.buffer;
+    // 返回无 4 字节前缀的 sprite 数据（MKF 归档子文件不需要前缀）
+    return imageCode.buffer;
   }
 
   return {

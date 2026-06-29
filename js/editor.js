@@ -40,6 +40,8 @@ const Editor = (function () {
   let showL1 = true;
   let showGrid = false;
   let showEventChar = false;
+  let showEventLabel = true;
+  let drawEventBoxes = true;
 
   // 模板
   let templateTiles = []; // {x, y} 数组，相对于基点
@@ -75,9 +77,92 @@ const Editor = (function () {
     const elapsed = timestamp - lastAnimTime;
     if (elapsed < ANIM_INTERVAL_MS) return;
     lastAnimTime = timestamp;
+
     for (const ev of events) {
-      if (ev.image > 0 && ev.frames > 1) {
-        ev.currFrame = (ev.currFrame + 1) % ev.frames;
+      // 帧动画：frames > 1 或 framesAuto > 1 时播放行走动画
+      if (ev.image > 0) {
+        const effectiveFrames = ev.frames > 1 ? ev.frames : (ev.framesAuto > 1 ? ev.framesAuto : 0);
+        if (effectiveFrames > 1) {
+          ev.currFrame = (ev.currFrame + 1) % effectiveFrames;
+        }
+      }
+
+      // 自动行走：沿着 SSS 脚本移动路径一格一格移动（方向只在目标切换时更新）
+      if (ev.moving && ev.autoScript > 0 && typeof SssScriptLoader !== 'undefined' && SssScriptLoader.isLoaded()) {
+        if (!ev.movePath) {
+          ev.movePath = SssScriptLoader.extractMovePath(ev.autoScript);
+          ev.movePathIndex = 0;
+          // 初始化方向：基于第一个目标的第一步等距方向
+          const firstTarget = ev.movePath[0];
+          if (firstTarget && typeof MapModule !== 'undefined') {
+            let bestDir = 0;
+            let bestDist = Infinity;
+            for (let dir = 1; dir <= 6; dir++) {
+              const n = MapModule.getNeighborTile(ev.x, ev.y, dir);
+              const dist = Math.abs(n.x - firstTarget.x) + Math.abs(n.y - firstTarget.y);
+              if (dist < bestDist) {
+                bestDist = dist;
+                bestDir = dir;
+              }
+            }
+            switch (bestDir) {
+              case 1: ev.direction = 3; break; // 右下 → 上
+              case 2: ev.direction = 0; break; // 左下 → 下
+              case 3: ev.direction = 1; break; // 左上 → 左
+              case 4: ev.direction = 2; break; // 右上 → 右
+              case 5: ev.direction = 3; break; // 上 → 上
+              case 6: ev.direction = 0; break; // 下 → 下
+            }
+          }
+        }
+        if (ev.movePath && ev.movePath.length > 0) {
+          const target = ev.movePath[ev.movePathIndex];
+          if (target) {
+            const dx = target.x - ev.x;
+            const dy = target.y - ev.y;
+            if (dx === 0 && dy === 0) {
+              // 已到达目标，前往下一个路径点，并基于下一步等距方向更新方向
+              ev.movePathIndex = (ev.movePathIndex + 1) % ev.movePath.length;
+              const nextTarget = ev.movePath[ev.movePathIndex];
+              if (nextTarget && typeof MapModule !== 'undefined') {
+                let bestDir = 0;
+                let bestDist = Infinity;
+                for (let dir = 1; dir <= 6; dir++) {
+                  const n = MapModule.getNeighborTile(ev.x, ev.y, dir);
+                  const dist = Math.abs(n.x - nextTarget.x) + Math.abs(n.y - nextTarget.y);
+                  if (dist < bestDist) {
+                    bestDist = dist;
+                    bestDir = dir;
+                  }
+                }
+                switch (bestDir) {
+                  case 1: ev.direction = 3; break; // 右下 → 上
+                  case 2: ev.direction = 0; break; // 左下 → 下
+                  case 3: ev.direction = 1; break; // 左上 → 左
+                  case 4: ev.direction = 2; break; // 右上 → 右
+                  case 5: ev.direction = 3; break; // 上 → 上
+                  case 6: ev.direction = 0; break; // 下 → 下
+                }
+              }
+            } else if (typeof MapModule !== 'undefined') {
+              // 继续朝目标移动，不改变方向
+              let bestDir = 0;
+              let bestDist = Infinity;
+              for (let dir = 1; dir <= 6; dir++) {
+                const n = MapModule.getNeighborTile(ev.x, ev.y, dir);
+                const dist = Math.abs(n.x - target.x) + Math.abs(n.y - target.y);
+                if (dist < bestDist) {
+                  bestDist = dist;
+                  bestDir = dir;
+                }
+              }
+              const next = MapModule.getNeighborTile(ev.x, ev.y, bestDir);
+              ev.x = next.x;
+              ev.y = next.y;
+              // 移动过程中不改变方向
+            }
+          }
+        }
       }
     }
   }
@@ -182,6 +267,7 @@ const Editor = (function () {
       imagePtrOffset: eventData.imagePtrOffset || 0,
       framesAuto: eventData.framesAuto || 0,
       scrJmpCountAuto: eventData.scrJmpCountAuto || 0,
+      moving: eventData.moving || false,
     });
     return id;
   }
@@ -200,6 +286,10 @@ const Editor = (function () {
   function updateEvent(id, updates) {
     const ev = getEvent(id);
     if (!ev) return false;
+    if (updates.autoScript !== undefined && updates.autoScript !== ev.autoScript) {
+      updates.movePath = null;
+      updates.movePathIndex = 0;
+    }
     Object.assign(ev, updates);
     return true;
   }
@@ -240,6 +330,15 @@ const Editor = (function () {
 
   function hasCopiedEvent() {
     return copiedEvent !== null;
+  }
+
+  // 获取事件的移动路径（从 SSS 脚本解析）
+  function getEventMovePath(eventId) {
+    const ev = getEvent(eventId);
+    if (!ev) return [];
+    if (typeof SssScriptLoader === 'undefined' || !SssScriptLoader.isLoaded()) return [];
+    if (!ev.autoScript || ev.autoScript === 0) return [];
+    return SssScriptLoader.extractMovePath(ev.autoScript);
   }
 
   function init() {
@@ -324,6 +423,10 @@ const Editor = (function () {
   function getShowGrid() { return showGrid; }
   function setShowEventChar(v) { showEventChar = v; }
   function getShowEventChar() { return showEventChar; }
+  function setShowEventLabel(v) { showEventLabel = v; }
+  function getShowEventLabel() { return showEventLabel; }
+  function setDrawEventBoxes(v) { drawEventBoxes = v; }
+  function getDrawEventBoxes() { return drawEventBoxes; }
 
   function loadCharImage(imageId, suffix) {
     const key = imageId + '-' + suffix;
@@ -569,6 +672,8 @@ const Editor = (function () {
     setShowL1, getShowL1,
     setShowGrid, getShowGrid,
     setShowEventChar, getShowEventChar,
+    setShowEventLabel, getShowEventLabel,
+    setDrawEventBoxes, getDrawEventBoxes,
     loadCharImage, getCharImage,
     setMouseTile, getMouseTile,
     setSelTile, getSelTile,
@@ -600,6 +705,7 @@ const Editor = (function () {
     setShowEvents, getShowEvents, findEventAt,
     copyEvent, pasteEvent, hasCopiedEvent,
     setNextEventId,
+    getEventMovePath,
     updateAnimation,
   };
 })();

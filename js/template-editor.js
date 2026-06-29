@@ -634,5 +634,53 @@ const TemplateEditor = (function() {
     if (curTile) curTile.textContent = id;
   }
 
-  return { init, open, close, isOpened, getTemplates, getSelected, selectTemplate, setSelectedTile, buildTileGrid, toggleTemplateSelection, clearTemplateSelection, getSelectedTemplateIndices, isTemplateSelected, deleteSelectedTemplates, deleteTemplateByIndex, base64ToImageData };
+  function remapTileIds(oldId, newId) {
+    // 更新当前编辑中的模板数据
+    for (const k in data) {
+      const t = data[k];
+      if (t.layer0 === oldId) {
+        t.layer0 = newId === -1 ? -1 : newId;
+      } else if (newId === -1 && t.layer0 > oldId) {
+        t.layer0--;
+      }
+      if (t.layer1 === oldId + 1) {
+        t.layer1 = newId === -1 ? 0 : newId + 1;
+      } else if (newId === -1 && t.layer1 > oldId + 1) {
+        t.layer1--;
+      }
+    }
+
+    // 更新已保存的模板列表
+    for (const tpl of savedTemplates) {
+      for (const t of tpl.tiles) {
+        if (t.layer0 === oldId) {
+          t.layer0 = newId === -1 ? -1 : newId;
+        } else if (newId === -1 && t.layer0 > oldId) {
+          t.layer0--;
+        }
+        if (t.layer1 === oldId + 1) {
+          t.layer1 = newId === -1 ? 0 : newId + 1;
+        } else if (newId === -1 && t.layer1 > oldId + 1) {
+          t.layer1--;
+        }
+      }
+      // 更新 tileImages 缓存键
+      if (tpl.tileImages) {
+        const newTileImages = {};
+        for (const [id, base64] of Object.entries(tpl.tileImages)) {
+          const numId = parseInt(id, 10);
+          if (numId === oldId) {
+            if (newId !== -1) newTileImages[newId] = base64;
+          } else if (newId === -1 && numId > oldId) {
+            newTileImages[numId - 1] = base64;
+          } else {
+            newTileImages[numId] = base64;
+          }
+        }
+        tpl.tileImages = newTileImages;
+      }
+    }
+  }
+
+  return { init, open, close, isOpened, getTemplates, getSelected, selectTemplate, setSelectedTile, buildTileGrid, toggleTemplateSelection, clearTemplateSelection, getSelectedTemplateIndices, isTemplateSelected, deleteSelectedTemplates, deleteTemplateByIndex, remapTileIds, base64ToImageData };
 })();

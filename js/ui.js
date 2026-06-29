@@ -423,6 +423,11 @@ const UI = (function () {
           const subfiles = demkf(buffer);
           if (subfiles.length < 2) return;
           sssMkfSubfiles = subfiles;
+          // 加载脚本数据到 SssScriptLoader（第5个子文件 = 索引4）
+          if (subfiles.length > 4 && typeof SssScriptLoader !== 'undefined') {
+            SssScriptLoader.load(subfiles[4].buffer);
+            console.log('SSS 脚本数据已加载:', subfiles[4].buffer.byteLength, '字节');
+          }
           const events = parseEventObjects(subfiles[0].buffer);
           const scenes = parseSceneEntries(subfiles[1].buffer);
           const sceneEvents = buildSceneEvents(scenes, events);
@@ -1378,6 +1383,12 @@ function bindDraggablePanel() {
         }
       });
     }
+
+    // 删除选中图块
+    const deleteTileBtn = document.getElementById('btn-delete-tile');
+    if (deleteTileBtn) {
+      deleteTileBtn.addEventListener('click', deleteSelectedTile);
+    }
     // 属性面板显示/隐藏
     const togglePanelBtn = document.getElementById('btn-toggle-panel');
     if (togglePanelBtn) {
@@ -1743,7 +1754,9 @@ function bindDraggablePanel() {
       'attr-event-frames',
       'attr-event-direction',
       'attr-event-status',
-      'attr-event-vanish'
+      'attr-event-vanish',
+      'attr-event-frames-auto',
+      'attr-event-scr-jmp-auto'
     ];
     eventInputs.forEach(id => {
       const el = document.getElementById(id);
@@ -1751,6 +1764,20 @@ function bindDraggablePanel() {
         el.addEventListener('change', applyEventProperties);
       }
     });
+
+    // 播放按钮
+    const playBtn = document.getElementById('btn-event-play');
+    if (playBtn) {
+      playBtn.addEventListener('click', () => {
+        const id = Editor.getSelectedEventId();
+        if (id < 0) return;
+        const ev = Editor.getEvent(id);
+        if (!ev) return;
+        ev.moving = !ev.moving;
+        updateEventPropertyPanel(ev);
+        updateStatus('事件 #' + id + (ev.moving ? ' 开始移动' : ' 停止移动'));
+      });
+    }
   }
 
   function applyEventProperties() {
@@ -1771,6 +1798,8 @@ function bindDraggablePanel() {
       direction: parseInt(document.getElementById('attr-event-direction').value) || 0,
       objStatus: parseInt(document.getElementById('attr-event-status').value) || 0,
       vanishTime: parseInt(document.getElementById('attr-event-vanish').value) || 0,
+      framesAuto: parseInt(document.getElementById('attr-event-frames-auto').value) || 0,
+      scrJmpCountAuto: parseInt(document.getElementById('attr-event-scr-jmp-auto').value) || 0,
     };
 
     Editor.pushUndo();
@@ -1847,6 +1876,11 @@ function bindDraggablePanel() {
     if (!ev) {
       document.getElementById('attr-event-id').textContent = '-1';
       document.getElementById('attr-xy').textContent = '-1, -1';
+      const playBtn = document.getElementById('btn-event-play');
+      if (playBtn) {
+        playBtn.textContent = '▶ 播放';
+        playBtn.style.background = '#3498db';
+      }
       return;
     }
     document.getElementById('attr-event-id').textContent = ev.id;
@@ -1859,6 +1893,13 @@ function bindDraggablePanel() {
     document.getElementById('attr-event-direction').value = ev.direction;
     document.getElementById('attr-event-status').value = ev.objStatus;
     document.getElementById('attr-event-vanish').value = ev.vanishTime;
+    document.getElementById('attr-event-frames-auto').value = ev.framesAuto;
+    document.getElementById('attr-event-scr-jmp-auto').value = ev.scrJmpCountAuto;
+    const playBtn = document.getElementById('btn-event-play');
+    if (playBtn) {
+      playBtn.textContent = ev.moving ? '⏸ 暂停' : '▶ 播放';
+      playBtn.style.background = ev.moving ? '#e74c3c' : '#3498db';
+    }
   }
 
   function updateEventList() {
@@ -1876,7 +1917,7 @@ function bindDraggablePanel() {
       div.dataset.id = ev.id;
       div.innerHTML = '<span class="event-item-id">#' + ev.id + '</span>' +
         '<span class="event-item-pos">(' + ev.x + ',' + ev.y + ')</span>' +
-        '<span class="event-item-script">S:' + ev.triggerScript + '</span>';
+        '<span class="event-item-script">S:' + ev.triggerScript + (ev.autoScript ? '/A:' + ev.autoScript : '') + '</span>';
       div.addEventListener('click', () => {
         Editor.setSelectedEventId(ev.id);
         updateEventPropertyPanel(ev);
@@ -1927,9 +1968,83 @@ function bindDraggablePanel() {
         Editor.setSelectedTile(i);
         TemplateEditor.setSelectedTile(i);
         document.getElementById('selected-tile-id').textContent = i;
+        updateDeleteTileBtn();
       });
       grid.appendChild(div);
     }
+    // 恢复选中状态
+    const selectedId = Editor.getSelectedTile();
+    if (selectedId >= 0 && selectedId < tiles.length) {
+      const sel = grid.querySelector('.tile-thumb[data-id="' + selectedId + '"]');
+      if (sel) sel.classList.add('selected');
+    }
+    updateDeleteTileBtn();
+  }
+
+  function updateDeleteTileBtn() {
+    const btn = document.getElementById('btn-delete-tile');
+    if (btn) {
+      const id = Editor.getSelectedTile();
+      if (id >= 0 && tiles && id < tiles.length) {
+        btn.removeAttribute('disabled');
+      } else {
+        btn.setAttribute('disabled', 'disabled');
+      }
+    }
+  }
+
+  function deleteSelectedTile() {
+    const id = Editor.getSelectedTile();
+    if (id < 0 || !tiles || id >= tiles.length) {
+      updateStatus('没有选中的图块可删除');
+      return;
+    }
+
+    if (!confirm('确定要删除图块 ' + id + ' 吗？\n这会擦除地图中所有引用该图块的位置，并重新排列后续图块索引。')) {
+      return;
+    }
+
+    // 记录撤销（保存当前地图和事件状态）
+    Editor.pushUndo();
+
+    // 从 GOP 缓存中删除
+    const cache = gopCache[gopFileName];
+    if (cache) {
+      cache.tiles.splice(id, 1);
+      cache.miniTiles.splice(id, 1);
+      if (cache.rawTileData) cache.rawTileData.splice(id, 1);
+      cache.modified = true;
+      tiles = cache.tiles;
+      miniTiles = cache.miniTiles;
+    }
+
+    // 更新地图中的图块索引
+    MapModule.remapTileImage(id, -1);
+
+    // 更新模板中的图块索引
+    TemplateEditor.remapTileIds(id, -1);
+
+    // 清除跨图组导入缓存（因为索引变了）
+    crossGopImportMap.clear();
+    // 清除模板适配缓存
+    cachedAdaptedTemplate = null;
+    cachedTemplateIdx = -1;
+
+    // 清除选中状态
+    Editor.setSelectedTile(-1);
+    TemplateEditor.setSelectedTile(-1);
+    document.getElementById('selected-tile-id').textContent = '-1';
+
+    // 刷新图块面板
+    buildTileGrid();
+
+    // 刷新模板列表缩略图
+    refreshTemplateList();
+
+    // 触发重绘
+    isModified = true;
+
+    updateStatus('图块 ' + id + ' 已删除，地图和模板引用已更新');
   }
 
   function refreshTemplateList() {
@@ -2364,7 +2479,15 @@ function bindDraggablePanel() {
         if (gopCache[name] && gopCache[name].modified) {
           // 已加载且被修改（跨组导入等），从原始 RLE 数据直接拼接，不重新编码
           const encoded = GopLoader.encodeGOPFromRaw(gopCache[name].rawTileData);
-          subfiles.push(new Uint8Array(encoded));
+          let data = new Uint8Array(encoded);
+          // 去掉 encodeGOPFromRaw 添加的 4 字节长度前缀（MKF 子文件不需要前缀）
+          if (data.length > 4) {
+            const prefix = new DataView(data.buffer).getUint32(0, true);
+            if (prefix === data.length - 4) {
+              data = data.slice(4);
+            }
+          }
+          subfiles.push(data);
         } else {
          // 未修改或未被加载，直接使用原始文件(去掉可能的前缀）
           const res = await fetch('./gop/' + name);

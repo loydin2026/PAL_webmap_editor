@@ -234,6 +234,21 @@ const MapModule = (function () {
     templateData.fill(0);
   }
 
+  function remapTileImage(oldId, newId) {
+    for (let y = 0; y < MAP_HEIGHT; y++) {
+      for (let x = 0; x < MAP_WIDTH; x++) {
+        for (let l = 0; l < MAP_LAYERS; l++) {
+          const currentImg = getTileImage(x, y, l);
+          if (currentImg === oldId) {
+            setTileImage(x, y, l, newId === -1 ? 0 : newId);
+          } else if (newId === -1 && currentImg > oldId) {
+            setTileImage(x, y, l, currentImg - 1);
+          }
+        }
+      }
+    }
+  }
+
   return {
     MAP_WIDTH,
     MAP_HEIGHT,
@@ -258,5 +273,6 @@ const MapModule = (function () {
     loadMap,
     saveMap,
     newMap,
+    remapTileImage,
   };
 })();

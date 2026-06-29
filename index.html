@@ -97,6 +97,7 @@
                     <div id="tile-info">选中: <span id="selected-tile-id">-1</span></div>
                     <div class="tile-actions">
                         <button id="btn-export-gop">💾 导出 GOP</button>
+                        <button id="btn-delete-tile" disabled>🗑️ 删除图块</button>
                     </div>
                 </div>
 
@@ -240,6 +241,18 @@
                                 <label>消失时间:</label>
                                 <input type="number" id="attr-event-vanish" min="0" max="65535">
                             </div>
+                            <div class="attr-row attr-row-single">
+                                <label>自动帧数:</label>
+                                <input type="number" id="attr-event-frames-auto" min="0" max="65535">
+                            </div>
+                            <div class="attr-row attr-row-single">
+                                <label>自动跳转:</label>
+                                <input type="number" id="attr-event-scr-jmp-auto" min="0" max="65535">
+                            </div>
+                            <div class="attr-row attr-row-single">
+                                <label>移动:</label>
+                                <button id="btn-event-play" style="width:auto;padding:4px 12px;">▶ 播放</button>
+                            </div>
                         </div>
                         <div class="attr-row" id="attr-row-template" style="display:none">
                             <button id="btn-create-template">🍪 创建模板</button>
@@ -325,6 +338,7 @@
     <!-- 加载顺序 -->
     <script src="js/palette.js"></script>
     <script src="js/gop-loader.js"></script>
+    <script src="js/sss-script-loader.js"></script>
     <script src="js/yj1-compress.js"></script>
     <script src="js/map.js"></script>
     <script src="js/renderer.js"></script>
