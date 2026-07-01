@@ -176,13 +176,11 @@ const UI = (function () {
         }
       }
 
-      // 重建场景事件：保留未改动的、替换已改动的、追加新增的
+      // 重建场景事件：保留未改动的、替换已改动的、追加新增的；已删除的事件不再保留
       const newEvents = [];
       for (let i = 0; i < originalEvents.length; i++) {
         if (modifiedMap.has(i)) {
           newEvents.push(convertEventToSss(modifiedMap.get(i)));
-        } else {
-          newEvents.push(originalEvents[i]);
         }
       }
       for (const ev of addedEvents) {
@@ -202,6 +200,24 @@ const UI = (function () {
         sc.events[i].mapID = sc.mapID;
       }
       nextEventId += sc.events.length;
+    }
+
+    // 如果事件总数变化了，自动修复脚本中的事件引用
+    const oldTotal = sssJsonData.scenes.reduce((sum, s) => sum + (s.events || []).length, 0);
+    const newTotal = outputData.scenes.reduce((sum, s) => sum + (s.events || []).length, 0);
+    if (oldTotal !== newTotal && typeof SssScriptLoader !== 'undefined' && SssScriptLoader.isLoaded()) {
+      const currentScene = sssJsonData.scenes.find(s => s.mapID === mapId);
+      if (currentScene) {
+        const oldSceneCount = (currentScene.events || []).length;
+        const newScene = outputData.scenes.find(s => s.mapID === mapId);
+        const newSceneCount = (newScene.events || []).length;
+        const delta = newSceneCount - oldSceneCount;
+        if (delta !== 0) {
+          const insertIndex = currentScene.firstEventID + oldSceneCount;
+          SssScriptLoader.fixEventReferences(insertIndex, delta);
+          console.log('事件引用自动修复: insertIndex=' + insertIndex + ', delta=' + delta);
+        }
+      }
     }
     return outputData;
   }
@@ -230,6 +246,19 @@ const UI = (function () {
       const newSubfiles = [...sssMkfSubfiles];
       newSubfiles[0] = eventsData;
       newSubfiles[1] = scenesData;
+      // 如果脚本有修改，替换脚本子文件（索引4 = 第5个子文件）
+      if (typeof SssScriptLoader !== 'undefined' && SssScriptLoader.isModified()) {
+        const modifiedScript = SssScriptLoader.getModifiedData();
+        if (modifiedScript) {
+          newSubfiles[4] = new Uint8Array(modifiedScript);
+          console.log('脚本数据已修改，导出时包含修改后的脚本');
+        }
+      }
+      // 如果 M.MSG 有修改，更新索引子文件（索引3 = 第4个子文件）
+      if (msgDataCache && msgDataCache.externalIndex && msgDataCache.indexRaw && msgDataCache.modified) {
+        newSubfiles[3] = msgDataCache.indexRaw;
+        console.log('M.MSG 索引已修改，导出时包含更新后的索引');
+      }
       return enmkf(newSubfiles);
     }
     return enmkf([eventsData, scenesData]);
@@ -458,6 +487,10 @@ const UI = (function () {
             updateStatus('已自动加载 SSS.MKF：场景 #' + matchedScene.sceneID + ' 的 ' + convertedEvents.length + ' 个事件');
             isModified = true;
           }
+          // 自动加载 M.MSG 和 WORD.DAT
+          autoLoadMsgAndWord();
+          // SSS 数据已更新，清除缓存以便下次打开面板时重新构建
+          sssDataCache = null;
         } catch (err) {
           console.error('自动加载 SSS.MKF 失败:', err);
         }
@@ -482,6 +515,8 @@ const UI = (function () {
     bindCreateTemplateButton();
     bindTemplateActions();
     bindDraggablePanel();
+    bindScriptEditor();
+    bindSssDataPanel();
     // 初始化左侧面板为图块/模板模式（默认工具是 select）
     updateLeftPanelVisibility('select');
   }
@@ -850,12 +885,11 @@ function bindDraggablePanel() {
       if (mapId >= 0) {
         const matchedScene = sssJsonData.scenes.find(s => s.mapID === mapId);
         if (matchedScene) {
-          const convertedEvents = (matchedScene.events || []).map(ev => {
+          const convertedEvents = (matchedScene.events || []).map((ev, idx) => {
             if (typeof ev.pixelX === 'number' && typeof ev.pixelY === 'number') {
               if (ev.pixelX === 0 && ev.pixelY === 0) return null;
-              // SSS 使用 16 像素/tile 的原始游戏坐标，需转换为 32 像素/tile
               const tile = MapModule.pixelToTile(ev.pixelX * 2, ev.pixelY * 2);
-              return { ...ev, x: tile.x, y: tile.y };
+              return { ...ev, x: tile.x, y: tile.y, originalIdx: idx };
             }
             return ev;
           }).filter(ev => ev !== null);
@@ -1106,6 +1140,7 @@ function bindDraggablePanel() {
             if (data.scenes && Array.isArray(data.scenes)) {
               // 存储 SSS JSON 数据供地图切换时自动匹配
               sssJsonData = data;
+              sssDataCache = null; // 清除缓存以便重新构建
               
               // 询问加载哪个场景，或自动匹配当前地图
               const mapNum = mapFileName.match(/(\d+)/);
@@ -1210,6 +1245,7 @@ function bindDraggablePanel() {
             source: file.name,
             scenes: sceneEvents
           };
+          sssDataCache = null; // 清除缓存以便重新构建
 
           // 尝试匹配当前地图
           const num = mapFileName.match(/(\d+)/);
@@ -1294,13 +1330,8 @@ function bindDraggablePanel() {
     const eventExportMkfBtn = document.getElementById('btn-export-mkf');
     if (eventExportMkfBtn) {
       eventExportMkfBtn.addEventListener('click', async () => {
-        const scope = await showExportDialog('导出事件 MKF', [
-          { label: '🗂️  导出全部场景（含未改动）', value: 'all' },
-          { label: '📍 只导出当前地图场景', value: 'current' },
-        ]);
-        if (!scope) return;
-        const exportAll = scope === 'all';
-        const outputData = buildSssFromEditor(exportAll);
+        // MKF 导出必须包含所有场景，否则其他场景的数据会丢失
+        const outputData = buildSssFromEditor(true);
         if (!outputData) {
           updateStatus('没有事件可导出');
           return;
@@ -1311,11 +1342,11 @@ function bindDraggablePanel() {
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = (mapFileName || 'SSS') + (exportAll ? '.mkf' : '.scene.mkf');
+          a.download = (mapFileName || 'SSS') + '.mkf';
           a.click();
           URL.revokeObjectURL(url);
           const totalEvents = outputData.scenes.reduce((sum, s) => sum + (s.events || []).length, 0);
-          updateStatus('已导出 MKF（' + (exportAll ? '全部' : '当前地图') + '）：' + totalEvents + ' 个事件，' + outputData.scenes.length + ' 个场景，' + mkfData.length + ' 字节');
+          updateStatus('已导出 MKF（全部）：' + totalEvents + ' 个事件，' + outputData.scenes.length + ' 个场景，' + mkfData.length + ' 字节');
         } catch (err) {
           console.error('导出 MKF 失败:', err);
           updateStatus('导出 MKF 失败: ' + err.message);
@@ -1778,6 +1809,74 @@ function bindDraggablePanel() {
         updateStatus('事件 #' + id + (ev.moving ? ' 开始移动' : ' 停止移动'));
       });
     }
+
+    // 事件ID选择（同一tile多个事件时切换）
+    const idSelect = document.getElementById('attr-event-id');
+    if (idSelect) {
+      idSelect.addEventListener('change', () => {
+        const newId = parseInt(idSelect.value);
+        if (newId >= 0) {
+          Editor.setSelectedEventId(newId);
+          const ev = Editor.getEvent(newId);
+          updateEventPropertyPanel(ev);
+          updateEventList();
+          updateStatus('选中事件 #' + newId);
+        }
+      });
+    }
+
+    // 脚本编辑按钮
+    const editTriggerBtn = document.getElementById('btn-edit-trigger-script');
+    if (editTriggerBtn) {
+      editTriggerBtn.addEventListener('click', () => {
+        const addr = parseInt(document.getElementById('attr-event-trigger-script').value) || 0;
+        openScriptEditor(addr, '触发脚本');
+      });
+    }
+    const editAutoBtn = document.getElementById('btn-edit-auto-script');
+    if (editAutoBtn) {
+      editAutoBtn.addEventListener('click', () => {
+        const addr = parseInt(document.getElementById('attr-event-auto-script').value) || 0;
+        openScriptEditor(addr, '自动脚本');
+      });
+    }
+    // 新建脚本按钮
+    const newTriggerBtn = document.getElementById('btn-new-trigger-script');
+    if (newTriggerBtn) {
+      newTriggerBtn.addEventListener('click', () => {
+        if (typeof SssScriptLoader === 'undefined' || !SssScriptLoader.isLoaded()) {
+          alert('脚本数据未加载，请先加载 SSS.MKF');
+          return;
+        }
+        const newAddr = SssScriptLoader.createNewScript();
+        if (newAddr < 0) {
+          alert('创建新脚本失败');
+          return;
+        }
+        document.getElementById('attr-event-trigger-script').value = newAddr;
+        applyEventProperties();
+        openScriptEditor(newAddr, '触发脚本（新）');
+        updateStatus('已创建新触发脚本，地址: 0x' + newAddr.toString(16).toUpperCase());
+      });
+    }
+    const newAutoBtn = document.getElementById('btn-new-auto-script');
+    if (newAutoBtn) {
+      newAutoBtn.addEventListener('click', () => {
+        if (typeof SssScriptLoader === 'undefined' || !SssScriptLoader.isLoaded()) {
+          alert('脚本数据未加载，请先加载 SSS.MKF');
+          return;
+        }
+        const newAddr = SssScriptLoader.createNewScript();
+        if (newAddr < 0) {
+          alert('创建新脚本失败');
+          return;
+        }
+        document.getElementById('attr-event-auto-script').value = newAddr;
+        applyEventProperties();
+        openScriptEditor(newAddr, '自动脚本（新）');
+        updateStatus('已创建新自动脚本，地址: 0x' + newAddr.toString(16).toUpperCase());
+      });
+    }
   }
 
   function applyEventProperties() {
@@ -1797,9 +1896,6 @@ function bindDraggablePanel() {
       })(),
       direction: parseInt(document.getElementById('attr-event-direction').value) || 0,
       objStatus: parseInt(document.getElementById('attr-event-status').value) || 0,
-      vanishTime: parseInt(document.getElementById('attr-event-vanish').value) || 0,
-      framesAuto: parseInt(document.getElementById('attr-event-frames-auto').value) || 0,
-      scrJmpCountAuto: parseInt(document.getElementById('attr-event-scr-jmp-auto').value) || 0,
     };
 
     Editor.pushUndo();
@@ -1873,8 +1969,9 @@ function bindDraggablePanel() {
   }
 
   function updateEventPropertyPanel(ev) {
+    const idSelect = document.getElementById('attr-event-id');
     if (!ev) {
-      document.getElementById('attr-event-id').textContent = '-1';
+      idSelect.innerHTML = '<option value="-1">-1</option>';
       document.getElementById('attr-xy').textContent = '-1, -1';
       const playBtn = document.getElementById('btn-event-play');
       if (playBtn) {
@@ -1883,7 +1980,24 @@ function bindDraggablePanel() {
       }
       return;
     }
-    document.getElementById('attr-event-id').textContent = ev.id;
+    // 检查同一 tile 是否有多个事件
+    const tileEvents = Editor.getEventsAtTile ? Editor.getEventsAtTile(ev.x, ev.y) : [ev];
+    idSelect.innerHTML = '';
+    if (tileEvents.length > 1) {
+      for (const e of tileEvents) {
+        const opt = document.createElement('option');
+        opt.value = e.id;
+        opt.textContent = '#' + e.id + ' (Layer=' + e.layer + ')';
+        if (e.id === ev.id) opt.selected = true;
+        idSelect.appendChild(opt);
+      }
+    } else {
+      const opt = document.createElement('option');
+      opt.value = ev.id;
+      opt.textContent = String(ev.id);
+      opt.selected = true;
+      idSelect.appendChild(opt);
+    }
     document.getElementById('attr-xy').textContent = ev.x + ', ' + ev.y;
     document.getElementById('attr-event-trigger-script').value = ev.triggerScript;
     document.getElementById('attr-event-auto-script').value = ev.autoScript;
@@ -1892,9 +2006,6 @@ function bindDraggablePanel() {
     document.getElementById('attr-event-frames').value = ev.frames;
     document.getElementById('attr-event-direction').value = ev.direction;
     document.getElementById('attr-event-status').value = ev.objStatus;
-    document.getElementById('attr-event-vanish').value = ev.vanishTime;
-    document.getElementById('attr-event-frames-auto').value = ev.framesAuto;
-    document.getElementById('attr-event-scr-jmp-auto').value = ev.scrJmpCountAuto;
     const playBtn = document.getElementById('btn-event-play');
     if (playBtn) {
       playBtn.textContent = ev.moving ? '⏸ 暂停' : '▶ 播放';
@@ -2619,6 +2730,1324 @@ const buf = await res.arrayBuffer();
     document.getElementById('status-map').textContent = mapFileName || '未加载地图';
   }
   function updateZoomDisplay() { document.getElementById('zoom-level').textContent = Math.round(Editor.getZoom() * 100) + '%'; }
+
+  // ======================== 脚本编辑器 ========================
+  let scriptEditorUndoStack = [];
+  let scriptEditorRedoStack = [];
+  let currentScriptAddr = 0;
+
+  function openScriptEditor(addr, titlePrefix) {
+    if (typeof SssScriptLoader === 'undefined' || !SssScriptLoader.isLoaded()) {
+      alert('脚本数据未加载，请先加载 SSS.MKF');
+      return;
+    }
+    currentScriptAddr = addr;
+    const modal = document.getElementById('script-editor-modal');
+    const info = document.getElementById('script-editor-info');
+    if (info) info.textContent = (titlePrefix ? titlePrefix + ' ' : '') + '脚本地址: 0x' + addr.toString(16).toUpperCase();
+    renderScriptEditor(addr);
+    scriptEditorUndoStack = [];
+    scriptEditorRedoStack = [];
+    modal.classList.remove('hidden');
+  }
+
+  function closeScriptEditor() {
+    document.getElementById('script-editor-modal').classList.add('hidden');
+  }
+
+  function renderScriptEditor(addr) {
+    const tbody = document.getElementById('script-editor-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    const instructions = SssScriptLoader.parseScript(addr);
+    if (instructions.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7">无指令数据</td></tr>';
+      return;
+    }
+    const scriptNames = SssScriptLoader.getScriptNames();
+    // 生成下拉菜单选项
+    const options = Object.entries(scriptNames).map(([hex, name]) => {
+      const h = parseInt(hex);
+      return '<option value="' + h + '">0x' + h.toString(16).toUpperCase().padStart(4, '0') + ' - ' + name + '</option>';
+    }).join('');
+    for (const inst of instructions) {
+      const tr = document.createElement('tr');
+      const name = SssScriptLoader.getScriptName(inst.cmd);
+      const params = SssScriptLoader.getParamDesc(inst.cmd);
+      const mkHex = (v) => '0x' + v.toString(16).toUpperCase().padStart(4, '0');
+      const isCoordCmd = (cmd) => [0x10, 0x11, 0x44].includes(cmd);
+      const mkParamCell = (val, field, label, paramIndex) => {
+        const type = SssScriptLoader.getParamType(inst.cmd, paramIndex);
+        const jumpAttr = type !== 'none' ? ' data-jump-type="' + type + '" data-jump-value="' + val + '"' : '';
+        let extraHtml = '';
+        if (type === 'face' && val >= 0) {
+          extraHtml = '<img class="face-preview" src="face/' + val + '-1.png" alt="" onerror="this.style.display=\'none\'">';
+        } else if (type === 'msg' && msgDataCache && val >= 0 && val < msgDataCache.count) {
+          const text = msgDataCache.texts[val] || '';
+          if (text) {
+            extraHtml = '<span class="msg-preview" title="' + escapeHtml(text) + '">' + escapeHtml(text.substring(0, 20)) + (text.length > 20 ? '…' : '') + '</span>';
+          }
+        }
+        // 坐标指令：显示转换后的真实坐标，方便编辑
+        let displayVal = val;
+        let coordHint = '';
+        if (isCoordCmd(inst.cmd)) {
+          if (field === 'p1') {
+            displayVal = inst.p1 * 2 + inst.p3;
+            coordHint = '<span class="coord-hint" style="color:#888;font-size:0.75rem;margin-left:4px" title="原始值: p1=' + inst.p1 + ', p3=' + inst.p3 + '">(X=' + displayVal + ')</span>';
+          } else if (field === 'p3') {
+            coordHint = '<span class="coord-hint" style="color:#888;font-size:0.75rem;margin-left:4px">(X%2=' + val + ')</span>';
+          }
+        }
+        return '<td class="script-param-cell">' +
+          '<div class="param-label" title="' + label + '">' + label + '</div>' +
+          '<div class="param-row">' +
+          '<input type="number" class="param-input" value="' + displayVal + '" data-field="' + field + '" data-offset="' + inst.offset + '"' + jumpAttr + '>' +
+          '<button class="param-jump" data-type="' + type + '" data-value="' + val + '" data-field="' + field + '" data-offset="' + inst.offset + '"' + (type === 'none' ? ' style="display:none"' : '') + '>🔗</button>' +
+          extraHtml + coordHint +
+          '</div></td>';
+      };
+      // 操作按钮：插入 / 删除
+      const actionsHtml = '<td class="col-actions">' +
+        '<div class="script-actions">' +
+        '<button class="btn-insert" data-offset="' + inst.offset + '" title="在此后插入指令">＋</button>' +
+        '<button class="btn-delete" data-offset="' + inst.offset + '" title="删除此指令">－</button>' +
+        '</div></td>';
+      tr.innerHTML =
+        actionsHtml +
+        '<td class="col-offset">' + mkHex(inst.offset) + '</td>' +
+        '<td><select class="hex script-cmd-select" data-field="cmd" data-offset="' + inst.offset + '">' + options + '</select></td>' +
+        mkParamCell(inst.p1, 'p1', params.p1, 0) +
+        mkParamCell(inst.p2, 'p2', params.p2, 1) +
+        mkParamCell(inst.p3, 'p3', params.p3, 2) +
+        '<td class="script-cmd-name">' + name + '</td>';
+      tbody.appendChild(tr);
+      // 设置select的选中值
+      const sel = tr.querySelector('select[data-field="cmd"]');
+      if (sel) sel.value = inst.cmd;
+    }
+    // 绑定输入框变化事件
+    tbody.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('change', onScriptEditorChange);
+    });
+    tbody.querySelectorAll('select').forEach(sel => {
+      sel.addEventListener('change', onScriptEditorChange);
+    });
+    // 绑定跳转按钮事件
+    tbody.querySelectorAll('.param-jump').forEach(btn => {
+      btn.addEventListener('click', onParamJump);
+    });
+    // 绑定插入/删除按钮事件
+    tbody.querySelectorAll('.btn-insert').forEach(btn => {
+      btn.addEventListener('click', onScriptEditorInsert);
+    });
+    tbody.querySelectorAll('.btn-delete').forEach(btn => {
+      btn.addEventListener('click', onScriptEditorDelete);
+    });
+    // 填充右侧参考表
+    const refList = document.getElementById('script-cmd-ref-list');
+    if (refList) {
+      const sortedNames = Object.entries(scriptNames)
+        .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
+        .map(([hex, name]) => {
+          const h = parseInt(hex);
+          return '<div class="ref-item"><span class="ref-hex">0x' + h.toString(16).toUpperCase().padStart(4, '0') + '</span><span class="ref-name">' + name + '</span></div>';
+        }).join('');
+      refList.innerHTML = sortedNames || '无指令数据';
+    }
+  }
+
+  function onScriptEditorInsert(e) {
+    const btn = e.target;
+    const offset = parseInt(btn.dataset.offset);
+    if (isNaN(offset)) return;
+    // 保存旧状态用于撤销
+    const oldInst = SssScriptLoader.getInstruction(offset);
+    if (oldInst) {
+      scriptEditorUndoStack.push({ offset, ...oldInst });
+      if (scriptEditorUndoStack.length > 50) scriptEditorUndoStack.shift();
+    }
+    scriptEditorRedoStack = [];
+    // 如果当前指令是 0000（结束指令），在 0000 之前插入新指令
+    // 新插入的指令默认使用 0x0009（清屏等待）作为占位，避免插入 0000 导致 parseScript 提前终止
+    if (oldInst && oldInst.cmd === 0) {
+      SssScriptLoader.insertInstruction(offset, 0x0009, 0, 0, 0);
+    } else {
+      // 否则在当前指令之后插入新指令
+      SssScriptLoader.insertInstruction(offset + 8, 0x0009, 0, 0, 0);
+    }
+    renderScriptEditor(currentScriptAddr);
+  }
+
+  function onScriptEditorDelete(e) {
+    const btn = e.target;
+    const offset = parseInt(btn.dataset.offset);
+    if (isNaN(offset)) return;
+    const oldInst = SssScriptLoader.getInstruction(offset);
+    // 结束指令 0000 不能删除
+    if (oldInst && oldInst.cmd === 0) {
+      alert('结束指令不能删除');
+      return;
+    }
+    if (!confirm('确定删除此指令？')) return;
+    // 保存旧状态用于撤销
+    if (oldInst) {
+      scriptEditorUndoStack.push({ offset, ...oldInst });
+      if (scriptEditorUndoStack.length > 50) scriptEditorUndoStack.shift();
+    }
+    scriptEditorRedoStack = [];
+    SssScriptLoader.deleteInstruction(offset);
+    renderScriptEditor(currentScriptAddr);
+  }
+
+  function onScriptEditorChange(e) {
+    const inp = e.target;
+    const field = inp.dataset.field;
+    const offset = parseInt(inp.dataset.offset);
+    const val = parseInt(inp.value, 10);
+    if (isNaN(val)) {
+      alert('无效的数值: ' + inp.value);
+      return;
+    }
+    // 保存旧值用于撤销
+    const oldInst = SssScriptLoader.getInstruction(offset);
+    if (oldInst) {
+      scriptEditorUndoStack.push({ offset, ...oldInst });
+      if (scriptEditorUndoStack.length > 50) scriptEditorUndoStack.shift();
+    }
+    scriptEditorRedoStack = [];
+    const newInst = { ...oldInst };
+    newInst[field] = val;
+    // 坐标指令特殊处理：p1 输入框显示的是真实 X，需转换回 p1/p3
+    if (oldInst && [0x10, 0x11, 0x44].includes(oldInst.cmd) && field === 'p1') {
+      newInst.p1 = Math.floor(val / 2);
+      newInst.p3 = Math.abs(val % 2);
+    }
+    SssScriptLoader.setInstruction(offset, newInst.cmd, newInst.p1, newInst.p2, newInst.p3);
+    renderScriptEditor(currentScriptAddr);
+  }
+
+  function onParamJump(e) {
+    const btn = e.target;
+    const type = btn.dataset.type;
+    const value = parseInt(btn.dataset.value);
+    if (isNaN(value)) return;
+    switch (type) {
+      case 'msg':
+        openMsgSelector(parseInt(btn.dataset.offset), btn.dataset.field, value);
+        break;
+      case 'script':
+        openScriptEditor(value);
+        break;
+      case 'event':
+        // 未来可扩展：高亮对应事件
+        alert('事件 #' + value + ' 的详细信息将在事件编辑器中显示（待实现）');
+        break;
+      case 'item':
+        jumpToItem(value);
+        break;
+      case 'char':
+        alert('角色 #' + value + '（可在对象编辑器中查看）');
+        break;
+      case 'scene':
+        alert('场景 #' + value + '（可在场景列表中查看）');
+        break;
+      case 'music':
+        alert('音乐 #' + value);
+        break;
+      case 'sfx':
+        alert('音效 #' + value);
+        break;
+      case 'image':
+        alert('图像 #' + value);
+        break;
+      case 'face':
+        alert('头像 #' + value + '（已在旁边显示预览）');
+        break;
+      case 'direction':
+        const dirs = ['下', '左', '上', '右'];
+        alert('方向: ' + (dirs[value] || value));
+        break;
+      default:
+        break;
+    }
+  }
+
+  function jumpToMessage(msgId) {
+    if (!msgDataCache) {
+      alert('请先加载 M.MSG');
+      return;
+    }
+    if (msgId < 0 || msgId >= msgDataCache.count) {
+      alert('消息编号超出范围: ' + msgId);
+      return;
+    }
+    // 打开SSS数据面板并切换到消息标签
+    openSssDataPanel();
+    // 关闭脚本编辑器（如果打开）
+    closeScriptEditor();
+    // 计算页码
+    const PAGE = 100;
+    const page = Math.floor(msgId / PAGE);
+    const pager = document.getElementById('sss-msg-pager');
+    if (pager) pager.dataset.page = page;
+    // 先切换到消息标签
+    switchSssDataTab('messages');
+    // 渲染后高亮对应行
+    setTimeout(() => {
+      const rows = document.querySelectorAll('#sss-msg-table tr');
+      for (const row of rows) {
+        const colId = row.querySelector('.col-id');
+        if (!colId) continue;
+        const idx = parseInt(colId.textContent);
+        if (idx === msgId) {
+          row.style.background = '#2b3a2b';
+          row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // 闪烁效果
+          let blink = 0;
+          const interval = setInterval(() => {
+            row.style.background = blink % 2 === 0 ? '#3a5a3a' : '#2b3a2b';
+            blink++;
+            if (blink > 5) clearInterval(interval);
+          }, 300);
+        } else {
+          row.style.background = '';
+        }
+      }
+    }, 100);
+  }
+
+  // ========== 消息选择器（用于脚本编辑器中选择消息编号） ==========
+  let msgSelectorCallback = null; // { offset, field }
+
+  function openMsgSelector(offset, field, currentValue) {
+    if (!msgDataCache) {
+      alert('请先加载 M.MSG');
+      return;
+    }
+    msgSelectorCallback = { offset, field };
+    const modal = document.getElementById('msg-selector-modal');
+    const selectedEl = document.getElementById('msg-selector-selected');
+    if (selectedEl) {
+      selectedEl.textContent = currentValue >= 0 && currentValue < msgDataCache.count
+        ? '#' + currentValue + ' ' + (msgDataCache.texts[currentValue] || '').substring(0, 30)
+        : '无';
+    }
+    document.getElementById('msg-selector-search').value = '';
+    renderMsgSelector('', currentValue);
+    modal.classList.remove('hidden');
+  }
+
+  function closeMsgSelector() {
+    document.getElementById('msg-selector-modal').classList.add('hidden');
+    msgSelectorCallback = null;
+  }
+
+  function renderMsgSelector(filterText, selectedId) {
+    const tbody = document.getElementById('msg-selector-tbody');
+    if (!tbody || !msgDataCache) return;
+    tbody.innerHTML = '';
+
+    const texts = msgDataCache.texts;
+    const count = msgDataCache.count;
+    const PAGE = 100;
+
+    // 收集匹配的消息索引
+    let matched = [];
+    if (filterText) {
+      const lower = filterText.toLowerCase();
+      for (let i = 0; i < count; i++) {
+        const text = texts[i] || '';
+        if (text.toLowerCase().indexOf(lower) !== -1 || String(i).indexOf(filterText) !== -1) {
+          matched.push(i);
+        }
+      }
+    } else {
+      matched = Array.from({ length: count }, (_, i) => i);
+    }
+
+    // 如果搜索且结果很多，只显示前 200 条
+    const showMatched = matched.length > 200 && filterText ? matched.slice(0, 200) : matched;
+
+    // 分页（仅在非搜索模式下）
+    let page = 0;
+    if (!filterText) {
+      const pager = document.getElementById('msg-selector-pager');
+      if (pager && pager.dataset.page) page = parseInt(pager.dataset.page) || 0;
+    }
+    const totalPages = Math.ceil(showMatched.length / PAGE);
+    if (page >= totalPages) page = Math.max(0, totalPages - 1);
+    const start = page * PAGE;
+    const end = Math.min(start + PAGE, showMatched.length);
+
+    for (let i = start; i < end; i++) {
+      const idx = showMatched[i];
+      const tr = document.createElement('tr');
+      const text = texts[idx] || '';
+      const isSelected = idx === selectedId;
+      tr.style.background = isSelected ? '#3a5a3a' : '';
+      tr.innerHTML = '<td style="text-align:center"><input type="radio" name="msg-selector-radio" value="' + idx + '"' + (isSelected ? ' checked' : '') + '></td>' +
+        '<td class="col-id">' + idx + '</td>' +
+        '<td>' + escapeHtml(text.substring(0, 60)) + (text.length > 60 ? '…' : '') + '</td>';
+      tr.addEventListener('click', () => {
+        const radio = tr.querySelector('input[type="radio"]');
+        if (radio) radio.checked = true;
+        onMsgSelectorSelect(idx);
+      });
+      tbody.appendChild(tr);
+    }
+
+    // 分页控件（非搜索模式下）
+    if (!filterText) {
+      const pagerEl = document.getElementById('msg-selector-pager');
+      if (pagerEl) {
+        let html = '';
+        if (totalPages > 1) {
+          html += '<button ' + (page <= 0 ? 'disabled' : '') + ' data-page="' + (page - 1) + '">◀</button>';
+          html += '<span>第 ' + (page + 1) + ' / ' + totalPages + ' 页</span>';
+          html += '<button ' + (page >= totalPages - 1 ? 'disabled' : '') + ' data-page="' + (page + 1) + '">▶</button>';
+        }
+        html += '<span style="margin-left:12px">共 ' + count + ' 条</span>';
+        pagerEl.innerHTML = html;
+        pagerEl.querySelectorAll('button:not([disabled])').forEach(btn => {
+          btn.addEventListener('click', () => {
+            pagerEl.dataset.page = btn.dataset.page;
+            renderMsgSelector('', selectedId);
+          });
+        });
+      }
+    }
+  }
+
+  function onMsgSelectorSelect(msgId) {
+    const selectedEl = document.getElementById('msg-selector-selected');
+    if (selectedEl) {
+      const text = msgDataCache && msgDataCache.texts[msgId] ? msgDataCache.texts[msgId].substring(0, 30) : '';
+      selectedEl.textContent = '#' + msgId + ' ' + text;
+    }
+    document.getElementById('msg-selector-ok-btn').disabled = false;
+  }
+
+  function onMsgSelectorConfirm() {
+    const radios = document.querySelectorAll('input[name="msg-selector-radio"]:checked');
+    if (!radios.length || !msgSelectorCallback) return;
+    const msgId = parseInt(radios[0].value);
+    const { offset, field } = msgSelectorCallback;
+
+    // 更新脚本指令
+    const oldInst = SssScriptLoader.getInstruction(offset);
+    if (oldInst) {
+      scriptEditorUndoStack.push({ offset, ...oldInst });
+      if (scriptEditorUndoStack.length > 50) scriptEditorUndoStack.shift();
+    }
+    scriptEditorRedoStack = [];
+    const newInst = { ...oldInst };
+    newInst[field] = msgId;
+    SssScriptLoader.setInstruction(offset, newInst.cmd, newInst.p1, newInst.p2, newInst.p3);
+    renderScriptEditor(currentScriptAddr);
+    closeMsgSelector();
+    updateStatus('已选择消息 #' + msgId);
+  }
+
+  function addNewMessage() {
+    if (!msgDataCache) return -1;
+    const text = prompt('请输入新消息内容（留空则创建空消息）：', '');
+    if (text === null) return -1; // 用户取消
+
+    const idx = msgDataCache.count;
+    msgDataCache.texts.push(text);
+    msgDataCache.rawTexts.push(new Uint8Array(0));
+    // indices 推入 0，导出时会重新计算
+    msgDataCache.indices.push(0);
+    msgDataCache.count = idx + 1;
+    if (!msgDataCache.modifiedIndices) msgDataCache.modifiedIndices = new Set();
+    msgDataCache.modifiedIndices.add(idx);
+    msgDataCache.modified = true;
+
+    // 刷新消息浏览器（如果打开）
+    if (sssDataCurrentTab === 'messages') renderSssMessages();
+    // 刷新选择器
+    renderMsgSelector('', idx);
+    onMsgSelectorSelect(idx);
+    return idx;
+  }
+
+  function jumpToItem(itemId) {
+    if (!wordDataCache) {
+      alert('请先加载 WORD.DAT');
+      return;
+    }
+    openSssDataPanel();
+    closeScriptEditor();
+    switchSssDataTab('items');
+    const PAGE = 60;
+    const page = Math.floor(itemId / PAGE);
+    const pager = document.getElementById('sss-item-pager');
+    if (pager) pager.dataset.page = page;
+    renderSssItems();
+    setTimeout(() => {
+      const cards = document.querySelectorAll('#sss-item-grid .card');
+      for (const card of cards) {
+        const colId = card.querySelector('.col-id');
+        if (!colId) continue;
+        const idx = parseInt(colId.textContent.replace('#', ''));
+        if (idx === itemId) {
+          card.style.background = '#2b3a2b';
+          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+          card.style.background = '';
+        }
+      }
+    }, 100);
+  }
+
+  function scriptEditorUndo() {
+    if (scriptEditorUndoStack.length === 0) return;
+    const snap = scriptEditorUndoStack.pop();
+    const current = SssScriptLoader.getInstruction(snap.offset);
+    if (current) {
+      scriptEditorRedoStack.push({ offset: snap.offset, ...current });
+    }
+    SssScriptLoader.setInstruction(snap.offset, snap.cmd, snap.p1, snap.p2, snap.p3);
+    renderScriptEditor(currentScriptAddr);
+  }
+
+  function scriptEditorRedo() {
+    if (scriptEditorRedoStack.length === 0) return;
+    const snap = scriptEditorRedoStack.pop();
+    const current = SssScriptLoader.getInstruction(snap.offset);
+    if (current) {
+      scriptEditorUndoStack.push({ offset: snap.offset, ...current });
+    }
+    SssScriptLoader.setInstruction(snap.offset, snap.cmd, snap.p1, snap.p2, snap.p3);
+    renderScriptEditor(currentScriptAddr);
+  }
+
+  function scriptEditorSave() {
+    alert('脚本修改已保存到内存。导出 MKF 时将包含修改后的脚本。');
+  }
+
+  function scriptEditorRevert() {
+    if (!confirm('确定还原所有脚本修改？这将丢失所有未导出的脚本更改。')) return;
+    SssScriptLoader.reset();
+    renderScriptEditor(currentScriptAddr);
+    scriptEditorUndoStack = [];
+    scriptEditorRedoStack = [];
+  }
+
+  function bindScriptEditor() {
+    document.getElementById('script-editor-close').addEventListener('click', closeScriptEditor);
+    document.getElementById('btn-script-save').addEventListener('click', scriptEditorSave);
+    document.getElementById('btn-script-undo').addEventListener('click', scriptEditorUndo);
+    document.getElementById('btn-script-redo').addEventListener('click', scriptEditorRedo);
+    document.getElementById('btn-script-revert').addEventListener('click', scriptEditorRevert);
+    // 指令参考弹窗
+    const btnRef = document.getElementById('btn-script-ref');
+    const refPanel = document.getElementById('script-cmd-reference');
+    const refClose = document.getElementById('script-cmd-ref-close');
+    if (btnRef && refPanel) {
+      btnRef.addEventListener('click', () => {
+        refPanel.classList.toggle('hidden');
+        if (!refPanel.classList.contains('hidden') && currentScriptAddr !== undefined) {
+          renderScriptEditor(currentScriptAddr);
+        }
+      });
+    }
+    if (refClose && refPanel) {
+      refClose.addEventListener('click', () => {
+        refPanel.classList.add('hidden');
+      });
+    }
+    // 点击模态框背景关闭
+    document.getElementById('script-editor-modal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) closeScriptEditor();
+    });
+
+    // 消息选择器事件绑定
+    const msgSelClose = document.getElementById('msg-selector-close');
+    const msgSelNewBtn = document.getElementById('msg-selector-new-btn');
+    const msgSelOkBtn = document.getElementById('msg-selector-ok-btn');
+    const msgSelSearch = document.getElementById('msg-selector-search');
+    const msgSelModal = document.getElementById('msg-selector-modal');
+    if (msgSelClose) {
+      msgSelClose.addEventListener('click', closeMsgSelector);
+    }
+    if (msgSelNewBtn) {
+      msgSelNewBtn.addEventListener('click', () => {
+        addNewMessage();
+      });
+    }
+    if (msgSelOkBtn) {
+      msgSelOkBtn.addEventListener('click', onMsgSelectorConfirm);
+    }
+    if (msgSelSearch) {
+      msgSelSearch.addEventListener('input', (e) => {
+        renderMsgSelector(e.target.value, -1);
+      });
+    }
+    if (msgSelModal) {
+      msgSelModal.addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeMsgSelector();
+      });
+    }
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // ======================== SSS 数据面板 ========================
+  let sssDataPanelOpen = false;
+  let sssDataCurrentTab = 'messages';
+  let sssDataCache = null; // { events, scenes, objects, msgIndices, msgTexts, wordNames }
+
+  function openSssDataPanel() {
+    const panel = document.getElementById('sss-data-panel');
+    if (!panel) return;
+    sssDataPanelOpen = true;
+    panel.classList.remove('hidden');
+    // 如果未加载过缓存，尝试从 sssJsonData 构建
+    if (!sssDataCache) buildSssDataCache();
+    switchSssDataTab('messages');
+  }
+
+  function closeSssDataPanel() {
+    const panel = document.getElementById('sss-data-panel');
+    if (panel) panel.classList.add('hidden');
+    sssDataPanelOpen = false;
+  }
+
+  function buildSssDataCache() {
+    if (!sssJsonData || !sssJsonData.scenes) return;
+    // 从 sssJsonData 构建缓存（复用 PAL_SSS_Editor 的数据结构）
+    const events = [];
+    const scenes = [];
+    let eventId = 1;
+    for (const sc of sssJsonData.scenes) {
+      scenes.push({
+        id: sc.sceneID + 1,
+        mapId: sc.mapID || 0,
+        enterScript: sc.scriptEnter || 0,
+        exitScript: sc.scriptLeave || 0,
+        lastEvent: sc.firstEventID + (sc.events || []).length - 1
+      });
+      for (const ev of (sc.events || [])) {
+        events.push({
+          id: eventId++, vals: [
+            ev.vanishTime || 0,
+            ev.pixelX || 0,
+            ev.pixelY || 0,
+            ev.layer || 0,
+            ev.triggerScript || 0,
+            ev.autoScript || 0,
+            ev.objStatus || 0,
+            ev.triggerMethod || 0,
+            ev.image || 0,
+            ev.frames || 0,
+            ev.direction || 0,
+            ev.currFrame || 0,
+            ev.scrJmpCount || 0,
+            ev.imagePtrOffset || 0,
+            ev.framesAuto || 0,
+            ev.scrJmpCountAuto || 0
+          ],
+          x: ev.pixelX || 0, y: ev.pixelY || 0, layer: ev.layer || 0,
+          triggerScript: ev.triggerScript || 0, autoScript: ev.autoScript || 0,
+          state: ev.objStatus || 0, triggerMode: ev.triggerMethod || 0,
+          sprite: ev.image || 0, dynImg: ev.frames || 0, statImg: ev.direction || 0
+        });
+      }
+    }
+    sssDataCache = { events, scenes };
+  }
+
+  // ========== M.MSG 解析 ==========
+  let msgDataCache = null; // { count, indices, texts, raw }
+  let wordDataCache = null; // { names, raw }
+
+  function parseMMsg(buffer, indexBuffer) {
+    const data = new Uint8Array(buffer);
+    const decoder = new TextDecoder('big5', { fatal: false });
+
+    // 如果提供了外部索引（SSS.MKF 子文件），使用正确方式解析
+    if (indexBuffer) {
+      const idxData = new Uint8Array(indexBuffer);
+      if (idxData.length >= 8) {
+        const idxDv = new DataView(indexBuffer);
+        const count = Math.floor(idxData.length / 4) - 1; // 4字节整数数组，消息数 = 整数数-1
+        const indices = [];
+        const texts = [];
+        const rawTexts = [];
+        for (let i = 0; i < count; i++) {
+          const b = idxDv.getUint32(i * 4, true);
+          const e = idxDv.getUint32((i + 1) * 4, true);
+          indices.push(b);
+          const len = Math.max(0, e - b);
+          if (b >= data.length) {
+            texts.push('');
+            rawTexts.push(new Uint8Array(0));
+            continue;
+          }
+          const end = Math.min(b + len, data.length);
+          const slice = data.slice(b, end);
+          rawTexts.push(new Uint8Array(slice));
+          try { texts.push(decoder.decode(slice)); }
+          catch (err) { texts.push('[解码错误]'); }
+        }
+        return { count, indices, texts, rawTexts, raw: new Uint8Array(data), indexRaw: new Uint8Array(idxData), externalIndex: true };
+      }
+    }
+
+    // 兼容旧的自包含格式（M.MSG 自带 2 字节索引头）
+    if (data.length < 2) return null;
+    const dv = new DataView(buffer);
+    const count = dv.getUint16(0, true);
+    const indexOffset = 2;
+    const textOffset = indexOffset + count * 2;
+    if (textOffset > data.length) return null;
+    const indices = [];
+    const texts = [];
+    const rawTexts = [];
+    for (let i = 0; i < count; i++) {
+      const off = dv.getUint16(indexOffset + i * 2, true);
+      indices.push(off);
+      let end = data.length;
+      if (i + 1 < count) {
+        end = dv.getUint16(indexOffset + (i + 1) * 2, true);
+      }
+      if (off >= data.length) {
+        texts.push('');
+        rawTexts.push(new Uint8Array(0));
+        continue;
+      }
+      let len = 0;
+      while (off + len < end && data[off + len] !== 0) len++;
+      const slice = data.slice(off, off + len);
+      rawTexts.push(new Uint8Array(slice));
+      try { texts.push(decoder.decode(slice)); }
+      catch (e) { texts.push('[解码错误]'); }
+    }
+    return { count, indices, texts, rawTexts, raw: new Uint8Array(data), externalIndex: false };
+  }
+
+  // ========== WORD.DAT 解析 ==========
+  function parseWordDat(buffer) {
+    const data = new Uint8Array(buffer);
+    const NAME_LEN = 10;
+    const count = Math.floor(data.length / NAME_LEN);
+    const names = [];
+    const rawNames = []; // 保存原始字节
+    const decoder = new TextDecoder('big5', { fatal: false });
+    for (let i = 0; i < count; i++) {
+      const off = i * NAME_LEN;
+      let len = 0;
+      while (len < NAME_LEN && data[off + len] !== 0) len++;
+      const slice = data.slice(off, off + len);
+      rawNames.push(new Uint8Array(data.slice(off, off + NAME_LEN)));
+      try { names.push(decoder.decode(slice)); }
+      catch (e) { names.push(''); }
+    }
+    return { names, rawNames, raw: new Uint8Array(data) };
+  }
+
+  // ========== 自动加载 M.MSG 和 WORD.DAT ==========
+  function autoLoadMsgAndWord() {
+    Promise.all([
+      fetch('M.MSG').then(r => r.ok ? r.arrayBuffer() : null).catch(() => null),
+      fetch('WORD.DAT').then(r => r.ok ? r.arrayBuffer() : null).catch(() => null)
+    ]).then(([msgBuf, wordBuf]) => {
+      if (msgBuf) {
+        let indexBuf = null;
+        if (sssMkfSubfiles && sssMkfSubfiles.length > 3) {
+          indexBuf = sssMkfSubfiles[3].buffer;
+          console.log('使用 SSS.MKF 子文件 #4 作为 M.MSG 索引');
+        }
+        msgDataCache = parseMMsg(msgBuf, indexBuf);
+        console.log('M.MSG 加载完成:', msgDataCache.count, '条对话');
+      }
+      if (wordBuf) {
+        wordDataCache = parseWordDat(wordBuf);
+        console.log('WORD.DAT 加载完成:', wordDataCache.names.length, '个名称');
+      }
+      // 如果SSS数据面板已打开，刷新当前标签
+      if (sssDataPanelOpen) {
+        switchSssDataTab(sssDataCurrentTab);
+      }
+    });
+  }
+
+  // ========== SSS 数据面板标签页切换 ==========
+  function switchSssDataTab(tab) {
+    sssDataCurrentTab = tab;
+    document.querySelectorAll('#sss-data-tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.sssTab === tab));
+    document.querySelectorAll('.sss-tab-content').forEach(c => c.classList.toggle('active', c.id === 'sss-tab-' + tab));
+    if (tab === 'messages') renderSssMessages();
+    else if (tab === 'events') renderSssEvents();
+    else if (tab === 'scenes') renderSssScenes();
+    else if (tab === 'items') renderSssItems();
+    else if (tab === 'objects') renderSssObjects();
+    else if (tab === 'scripts') renderSssScripts();
+  }
+
+  function renderSssMessages() {
+    const tbody = document.getElementById('sss-msg-table');
+    const countEl = document.getElementById('sss-msg-count');
+    if (!tbody) return;
+    if (!msgDataCache) {
+      tbody.innerHTML = '<tr><td colspan="4" class="small">请先加载 M.MSG 文件（可手动上传或放入项目目录自动加载）</td></tr>';
+      if (countEl) countEl.textContent = '0';
+      return;
+    }
+    const PAGE = 100;
+    let page = 0;
+    const pager = document.getElementById('sss-msg-pager');
+    if (pager && pager.dataset.page) page = parseInt(pager.dataset.page) || 0;
+    const total = msgDataCache.count;
+    if (countEl) countEl.textContent = total;
+    const start = page * PAGE;
+    const end = Math.min(start + PAGE, total);
+    tbody.innerHTML = '';
+    for (let i = start; i < end; i++) {
+      const tr = document.createElement('tr');
+      const off = msgDataCache.indices[i] !== undefined ? msgDataCache.indices[i] : 0;
+      const text = msgDataCache.texts[i] || '';
+      tr.innerHTML = '<td class="col-id">' + i + '</td>' +
+        '<td class="hex">0x' + (off !== undefined ? off.toString(16).toUpperCase() : '0') + '</td>' +
+        '<td>' + (text.length) + '</td>' +
+        '<td><input type="text" class="msg-text-input" value="' + escapeHtml(text) + '" data-idx="' + i + '" style="width:100%;background:transparent;border:none;color:#e1e3e6;font-size:13px"></td>';
+      tbody.appendChild(tr);
+    }
+    tbody.querySelectorAll('.msg-text-input').forEach(inp => {
+      inp.addEventListener('change', onMsgEdit);
+    });
+    if (pager) {
+      const totalPages = Math.ceil(total / PAGE);
+      let html = '';
+      if (totalPages > 1) {
+        html += '<button ' + (page <= 0 ? 'disabled' : '') + ' data-page="' + (page - 1) + '">◀</button>';
+        html += '<span>第 ' + (page + 1) + ' / ' + totalPages + ' 页</span>';
+        html += '<button ' + (page >= totalPages - 1 ? 'disabled' : '') + ' data-page="' + (page + 1) + '">▶</button>';
+      }
+      pager.innerHTML = html;
+      pager.querySelectorAll('button:not([disabled])').forEach(btn => {
+        btn.addEventListener('click', () => {
+          pager.dataset.page = btn.dataset.page;
+          renderSssMessages();
+        });
+      });
+    }
+  }
+
+  function renderSssEvents() {
+    const tbody = document.getElementById('sss-evt-table');
+    if (!tbody || !sssDataCache) return;
+    tbody.innerHTML = '';
+    const PAGE = 50;
+    const evts = sssDataCache.events.slice(0, PAGE);
+    for (const ev of evts) {
+      const tr = document.createElement('tr');
+      const gameX = ev.x - 0xA0;
+      const gameY = ev.y - 0x70;
+      tr.innerHTML = '<td class="col-id">' + ev.id + '</td>' +
+        '<td class="hex">' + ev.x.toString(16).toUpperCase() + '</td>' +
+        '<td class="coord-raw">' + gameX + '</td>' +
+        '<td class="hex">' + ev.y.toString(16).toUpperCase() + '</td>' +
+        '<td class="coord-raw">' + gameY + '</td>' +
+        '<td>' + ev.layer + '</td>' +
+        '<td class="hex">' + ev.triggerScript.toString(16).toUpperCase() + '</td>' +
+        '<td class="hex">' + ev.autoScript.toString(16).toUpperCase() + '</td>' +
+        '<td>' + ev.triggerMode + '</td>';
+      tbody.appendChild(tr);
+    }
+  }
+  function renderSssScenes() {
+    const tbody = document.getElementById('sss-scene-table');
+    if (!tbody || !sssDataCache) return;
+    tbody.innerHTML = '';
+    const scenes = sssDataCache.scenes;
+    for (let i = 0; i < scenes.length; i++) {
+      const sc = scenes[i];
+      let range = '-';
+      if (i > 0) {
+        range = (scenes[i-1].lastEvent + 1) + ' - ' + sc.lastEvent;
+      }
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td class="col-id">' + sc.id + '</td>' +
+        '<td>' + sc.mapId + '</td>' +
+        '<td class="hex">' + sc.enterScript.toString(16).toUpperCase() + '</td>' +
+        '<td class="hex">' + sc.exitScript.toString(16).toUpperCase() + '</td>' +
+        '<td>' + sc.lastEvent + '</td>' +
+        '<td>' + range + '</td>';
+      tbody.appendChild(tr);
+    }
+  }
+  function renderSssItems() {
+    const grid = document.getElementById('sss-item-grid');
+    if (!grid) return;
+    if (!wordDataCache) {
+      grid.innerHTML = '<div class="card" style="padding:20px"><p class="small">请先加载 WORD.DAT 文件（可手动上传或放入项目目录自动加载）</p></div>';
+      return;
+    }
+    const ITEM_COUNT = 256;
+    const names = wordDataCache.names.slice(0, ITEM_COUNT);
+    const PAGE = 60;
+    let page = 0;
+    const pager = document.getElementById('sss-item-pager');
+    if (pager && pager.dataset.page) page = parseInt(pager.dataset.page) || 0;
+    const start = page * PAGE;
+    const end = Math.min(start + PAGE, names.length);
+    grid.innerHTML = '';
+    for (let i = start; i < end; i++) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.style.cssText = 'padding:8px;display:flex;align-items:center;gap:8px';
+      const name = names[i] || '';
+      card.innerHTML = '<span class="col-id" style="min-width:40px">#' + i + '</span>' +
+        '<input type="text" class="word-name-input" value="' + escapeHtml(name) + '" data-idx="' + i + '" style="flex:1;background:#1e1e22;border:1px solid #3a3a40;border-radius:3px;padding:4px 8px;color:#e1e3e6;font-size:13px">';
+      grid.appendChild(card);
+    }
+    grid.querySelectorAll('.word-name-input').forEach(inp => {
+      inp.addEventListener('change', onWordEdit);
+    });
+    if (pager) {
+      const totalPages = Math.ceil(names.length / PAGE);
+      let html = '';
+      if (totalPages > 1) {
+        html += '<button ' + (page <= 0 ? 'disabled' : '') + ' data-page="' + (page - 1) + '">◀</button>';
+        html += '<span>第 ' + (page + 1) + ' / ' + totalPages + ' 页</span>';
+        html += '<button ' + (page >= totalPages - 1 ? 'disabled' : '') + ' data-page="' + (page + 1) + '">▶</button>';
+      }
+      pager.innerHTML = html;
+      pager.querySelectorAll('button:not([disabled])').forEach(btn => {
+        btn.addEventListener('click', () => {
+          pager.dataset.page = btn.dataset.page;
+          renderSssItems();
+        });
+      });
+    }
+  }
+  function renderSssObjects() {
+    const table = document.getElementById('sss-obj-table');
+    if (!table) return;
+    const tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    if (!wordDataCache) {
+      tbody.innerHTML = '<tr><td colspan="8" class="small">请先加载 WORD.DAT 文件（可手动上传或放入项目目录自动加载）</td></tr>';
+      return;
+    }
+    const typeBtn = document.querySelector('.sss-obj-type-btn.active');
+    const type = typeBtn ? typeBtn.dataset.type : 'system';
+    const ranges = {
+      system: { start: 0, end: 61 },
+      character: { start: 36, end: 42 },
+      item: { start: 61, end: 295 },
+      magic: { start: 295, end: 398 },
+      monster: { start: 398, end: 551 },
+      poison: { start: 551, end: 565 }
+    };
+    const range = ranges[type] || ranges.system;
+    const names = wordDataCache.names.slice(range.start, range.end);
+    tbody.innerHTML = '';
+    for (let i = 0; i < names.length; i++) {
+      const globalIdx = range.start + i;
+      const tr = document.createElement('tr');
+      const name = names[i] || '';
+      tr.innerHTML = '<td class="col-id">' + globalIdx + '</td>' +
+        '<td><input type="text" class="word-name-input" value="' + escapeHtml(name) + '" data-idx="' + globalIdx + '" style="width:100%;background:transparent;border:none;color:#e1e3e6;font-size:13px"></td>' +
+        '<td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td>';
+      tbody.appendChild(tr);
+    }
+    tbody.querySelectorAll('.word-name-input').forEach(inp => {
+      inp.addEventListener('change', onWordEdit);
+    });
+  }
+
+  function onMsgEdit(e) {
+    const inp = e.target;
+    const idx = parseInt(inp.dataset.idx);
+    const newText = inp.value;
+    if (!msgDataCache || idx >= msgDataCache.count) return;
+    msgDataCache.texts[idx] = newText;
+    if (!msgDataCache.modifiedIndices) msgDataCache.modifiedIndices = new Set();
+    msgDataCache.modifiedIndices.add(idx);
+    msgDataCache.modified = true;
+    console.log('对话 #' + idx + ' 已修改:', newText.substring(0, 30) + (newText.length > 30 ? '...' : ''));
+  }
+
+  function onWordEdit(e) {
+    const inp = e.target;
+    const idx = parseInt(inp.dataset.idx);
+    const newName = inp.value;
+    if (!wordDataCache || idx >= wordDataCache.names.length) return;
+    wordDataCache.names[idx] = newName;
+    if (!wordDataCache.modifiedIndices) wordDataCache.modifiedIndices = new Set();
+    wordDataCache.modifiedIndices.add(idx);
+    wordDataCache.modified = true;
+    console.log('名称 #' + idx + ' 已修改:', newName);
+  }
+
+  function renderSssScripts() {
+    const view = document.getElementById('sss-script-view');
+    if (view) view.textContent = '输入脚本地址(hex)后点击"查看"按钮查看指令...';
+  }
+
+  function bindSssScriptView() {
+    const viewBtn = document.getElementById('sss-script-view-btn');
+    const findBtn = document.getElementById('sss-script-find-btn');
+    const idInput = document.getElementById('sss-script-id');
+    const view = document.getElementById('sss-script-view');
+    if (!viewBtn || !idInput || !view) return;
+    viewBtn.addEventListener('click', () => {
+      const val = parseInt(idInput.value, idInput.value.startsWith('0x') || /[A-Fa-f]/.test(idInput.value) ? 16 : 10);
+      if (isNaN(val)) { view.textContent = '无效的脚本地址'; return; }
+      if (typeof SssScriptLoader === 'undefined' || !SssScriptLoader.isLoaded()) {
+        view.textContent = '脚本数据未加载，请先加载 SSS.MKF'; return;
+      }
+      const instructions = SssScriptLoader.parseScript(val);
+      if (instructions.length === 0) { view.textContent = '无指令数据'; return; }
+      const lines = [];
+      for (const inst of instructions) {
+        const name = SssScriptLoader.getScriptName(inst.cmd);
+        lines.push('0x' + inst.offset.toString(16).toUpperCase().padStart(4, '0') + ': ' +
+          '0x' + inst.cmd.toString(16).toUpperCase().padStart(4, '0') + ' ' +
+          'P1=' + inst.p1 + ' P2=' + inst.p2 + ' P3=' + inst.p3 + '  // ' + name);
+        if (inst.cmd === 0) break;
+      }
+      view.textContent = lines.join('\n');
+    });
+    if (findBtn) {
+      findBtn.addEventListener('click', () => {
+        if (!sssDataCache) { view.textContent = '请先加载 SSS.MKF'; return; }
+        const lines = [];
+        for (const ev of sssDataCache.events) {
+          if (ev.triggerScript > 0 || ev.autoScript > 0) {
+            lines.push('事件 #' + ev.id + ' @ (' + ev.x + ',' + ev.y + ') 触发脚本: 0x' + ev.triggerScript.toString(16).toUpperCase() + ' 自动脚本: 0x' + ev.autoScript.toString(16).toUpperCase());
+          }
+        }
+        view.textContent = lines.length > 0 ? lines.join('\n') : '没有事件使用脚本';
+      });
+    }
+    idInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') viewBtn.click(); });
+  }
+
+  // ========== Big5 编码器（利用浏览器 TextDecoder 生成反向映射） ==========
+  const Big5Encoder = (function() {
+    let encodeMap = null;
+    let mapReady = false;
+
+    function buildMap() {
+      if (mapReady) return;
+      encodeMap = new Uint16Array(65536);
+      const decoder = new TextDecoder('big5', { fatal: false });
+
+      // 单字节字符 (ASCII)
+      for (let i = 0; i < 128; i++) {
+        encodeMap[i] = i;
+      }
+
+      // 双字节字符：遍历所有有效的 Big5 第二字节范围
+      for (let b1 = 0x81; b1 <= 0xFE; b1++) {
+        for (let b2 = 0x40; b2 <= 0x7E; b2++) {
+          const bytes = new Uint8Array([b1, b2]);
+          const char = decoder.decode(bytes);
+          if (char.length === 1) {
+            const code = char.charCodeAt(0);
+            if (code !== 0xFFFD) {
+              encodeMap[code] = (b1 << 8) | b2;
+            }
+          }
+        }
+        for (let b2 = 0xA1; b2 <= 0xFE; b2++) {
+          const bytes = new Uint8Array([b1, b2]);
+          const char = decoder.decode(bytes);
+          if (char.length === 1) {
+            const code = char.charCodeAt(0);
+            if (code !== 0xFFFD) {
+              encodeMap[code] = (b1 << 8) | b2;
+            }
+          }
+        }
+      }
+      mapReady = true;
+    }
+
+    function encode(text) {
+      buildMap();
+      const bytes = [];
+      let hasUnmapped = false;
+      for (const char of text) {
+        const code = char.charCodeAt(0);
+        if (code <= 0x7F) {
+          bytes.push(code);
+        } else {
+          const big5 = encodeMap[code];
+          if (big5) {
+            bytes.push(big5 >> 8, big5 & 0xFF);
+          } else {
+            bytes.push(0x3F); // ?
+            hasUnmapped = true;
+          }
+        }
+      }
+      return { bytes: new Uint8Array(bytes), hasUnmapped };
+    }
+
+    return { encode };
+  })();
+
+  // ========== M.MSG / WORD.DAT 导出 ==========
+  function exportMMsg() {
+    if (!msgDataCache) { alert('请先加载 M.MSG'); return; }
+    const texts = msgDataCache.texts;
+    const rawTexts = msgDataCache.rawTexts;
+    const modifiedIndices = msgDataCache.modifiedIndices || new Set();
+    const count = texts.length;
+
+    // 构建新的 M.MSG 内容（纯文本，无索引头）
+    let totalLen = 0;
+    const textBuffers = [];
+    let hasUnmapped = false;
+    for (let i = 0; i < count; i++) {
+      let buf;
+      if (modifiedIndices.has(i)) {
+        const result = Big5Encoder.encode(texts[i] || '');
+        buf = result.bytes;
+        if (result.hasUnmapped) hasUnmapped = true;
+      } else {
+        buf = rawTexts[i] || new Uint8Array(0);
+      }
+      textBuffers.push(buf);
+      totalLen += buf.length;
+    }
+
+    const msgBuf = new Uint8Array(totalLen);
+    let pos = 0;
+    for (const buf of textBuffers) {
+      msgBuf.set(buf, pos);
+      pos += buf.length;
+    }
+
+    const blob = new Blob([msgBuf], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'M.MSG';
+    a.click(); URL.revokeObjectURL(url);
+
+    // 重新计算所有消息的偏移索引（级联更新，确保长度变化时不错位）
+    const newOffsets = [0];
+    let offset = 0;
+    for (const buf of textBuffers) {
+      offset += buf.length;
+      newOffsets.push(offset);
+    }
+    // 更新内存中的起始偏移（显示和后续导出用）
+    msgDataCache.indices = newOffsets.slice(0, count);
+    const indexBuf = new ArrayBuffer(newOffsets.length * 4);
+    const indexDv = new DataView(indexBuf);
+    for (let i = 0; i < newOffsets.length; i++) {
+      indexDv.setUint32(i * 4, newOffsets[i], true);
+    }
+    msgDataCache.indexRaw = new Uint8Array(indexBuf);
+    msgDataCache.modified = true;
+
+    // 如果使用了外部索引（SSS.MKF），同步更新内存中的子文件
+    if (msgDataCache.externalIndex && sssMkfSubfiles && sssMkfSubfiles.length > 3) {
+      sssMkfSubfiles[3] = new Uint8Array(indexBuf);
+      console.log('M.MSG 索引已更新到 SSS.MKF 子文件 #4');
+    }
+
+    let status = 'M.MSG 已导出: ' + count + ' 条对话';
+    if (msgDataCache.externalIndex) {
+      status += ' ⚠️ 请同时导出 SSS.MKF 以同步更新索引';
+    }
+    if (hasUnmapped) status += ' ⚠️ 某些字符无法编码为 Big5，已替换为 "?"';
+    updateStatus(status);
+  }
+
+  function exportWordDat() {
+    if (!wordDataCache) { alert('请先加载 WORD.DAT'); return; }
+    const NAME_LEN = 10;
+    const count = wordDataCache.names.length;
+    const rawNames = wordDataCache.rawNames;
+    const modifiedIndices = wordDataCache.modifiedIndices || new Set();
+    const buf = new ArrayBuffer(count * NAME_LEN);
+    const data = new Uint8Array(buf);
+    let hasUnmapped = false;
+    for (let i = 0; i < count; i++) {
+      if (modifiedIndices.has(i)) {
+        const name = wordDataCache.names[i] || '';
+        const result = Big5Encoder.encode(name);
+        const bytes = result.bytes;
+        const len = Math.min(bytes.length, NAME_LEN);
+        data.set(bytes.slice(0, len), i * NAME_LEN);
+        if (result.hasUnmapped) hasUnmapped = true;
+      } else if (rawNames[i]) {
+        data.set(rawNames[i], i * NAME_LEN);
+      }
+      // 剩余字节已经是 0（Uint8Array 初始化时为 0）
+    }
+    const blob = new Blob([buf], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'WORD.DAT';
+    a.click(); URL.revokeObjectURL(url);
+    let status = 'WORD.DAT 已导出: ' + count + ' 个名称';
+    if (hasUnmapped) status += ' ⚠️ 某些字符无法编码为 Big5，已替换为 "?"';
+    updateStatus(status);
+  }
+
+  function bindSssDataPanel() {
+    const btn = document.getElementById('btn-sss-data');
+    if (btn) btn.addEventListener('click', openSssDataPanel);
+    document.getElementById('sss-data-close').addEventListener('click', closeSssDataPanel);
+    document.getElementById('sss-data-panel').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) closeSssDataPanel();
+    });
+    document.querySelectorAll('#sss-data-tabs .tab').forEach(tab => {
+      tab.addEventListener('click', () => switchSssDataTab(tab.dataset.sssTab));
+    });
+
+    // 对象类型切换按钮
+    document.querySelectorAll('.sss-obj-type-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.sss-obj-type-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderSssObjects();
+      });
+    });
+
+    // 对话搜索
+    const msgSearchBtn = document.getElementById('sss-msg-search-btn');
+    const msgSearchInput = document.getElementById('sss-msg-search');
+    if (msgSearchBtn && msgSearchInput) {
+      msgSearchBtn.addEventListener('click', () => {
+        const q = msgSearchInput.value.trim().toLowerCase();
+        if (!q || !msgDataCache) return;
+        const hits = [];
+        for (let i = 0; i < msgDataCache.count; i++) {
+          const t = (msgDataCache.texts[i] || '').toLowerCase();
+          if (t.includes(q)) hits.push(i);
+        }
+        if (hits.length === 0) { alert('未找到包含 "' + q + '" 的对话'); return; }
+        const pager = document.getElementById('sss-msg-pager');
+        if (pager) pager.dataset.page = Math.floor(hits[0] / 100);
+        renderSssMessages();
+        // 高亮第一个匹配项
+        setTimeout(() => {
+          const rows = document.querySelectorAll('#sss-msg-table tr');
+          for (const row of rows) {
+            const colId = row.querySelector('.col-id');
+            if (!colId) continue;
+            const idx = parseInt(colId.textContent);
+            if (hits.includes(idx)) {
+              row.style.background = '#2b3a2b';
+              row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }
+        }, 50);
+      });
+      msgSearchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') msgSearchBtn.click(); });
+    }
+    document.getElementById('sss-msg-clear-btn')?.addEventListener('click', () => {
+      const pager = document.getElementById('sss-msg-pager');
+      if (pager) pager.dataset.page = '0';
+      renderSssMessages();
+    });
+    document.getElementById('sss-msg-new-btn')?.addEventListener('click', () => {
+      addNewMessage();
+    });
+
+    // 物品搜索
+    const itemSearchBtn = document.getElementById('sss-item-search-btn');
+    const itemSearchInput = document.getElementById('sss-item-search');
+    if (itemSearchBtn && itemSearchInput) {
+      itemSearchBtn.addEventListener('click', () => {
+        const q = itemSearchInput.value.trim().toLowerCase();
+        if (!q || !wordDataCache) return;
+        const hits = [];
+        for (let i = 0; i < 256; i++) {
+          const n = (wordDataCache.names[i] || '').toLowerCase();
+          if (n.includes(q)) hits.push(i);
+        }
+        if (hits.length === 0) { alert('未找到包含 "' + q + '" 的物品'); return; }
+        const pager = document.getElementById('sss-item-pager');
+        if (pager) pager.dataset.page = Math.floor(hits[0] / 60);
+        renderSssItems();
+        setTimeout(() => {
+          const cards = document.querySelectorAll('#sss-item-grid .card');
+          for (const card of cards) {
+            const colId = card.querySelector('.col-id');
+            if (!colId) continue;
+            const idx = parseInt(colId.textContent.replace('#', ''));
+            if (hits.includes(idx)) card.style.background = '#2b3a2b';
+          }
+        }, 50);
+      });
+      itemSearchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') itemSearchBtn.click(); });
+    }
+
+    // 导出按钮
+    document.getElementById('sss-export-mkf')?.addEventListener('click', () => {
+      if (!sssJsonData) { alert('请先加载 SSS.MKF'); return; }
+      try {
+        // 使用 buildSssFromEditor 以包含编辑器中的修改（新增/删除/修改的事件）
+        const outputData = buildSssFromEditor(true);
+        const mkfData = sssToMkf(outputData || sssJsonData);
+        const blob = new Blob([mkfData], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'SSS.MKF';
+        a.click(); URL.revokeObjectURL(url);
+        if (outputData) {
+          const totalEvents = outputData.scenes.reduce((sum, s) => sum + (s.events || []).length, 0);
+          updateStatus('SSS.MKF 已导出: ' + totalEvents + ' 个事件');
+        } else {
+          updateStatus('SSS.MKF 已导出: ' + mkfData.length + ' 字节');
+        }
+      } catch (err) {
+        alert('导出 SSS.MKF 失败: ' + err.message);
+      }
+    });
+    document.getElementById('sss-export-msg')?.addEventListener('click', exportMMsg);
+    document.getElementById('sss-export-word')?.addEventListener('click', exportWordDat);
+
+    // 文件上传
+    const msgLoadBtn = document.getElementById('btn-load-msg');
+    const msgLoadInput = document.getElementById('msg-load-input');
+    if (msgLoadBtn && msgLoadInput) {
+      msgLoadBtn.addEventListener('click', () => msgLoadInput.click());
+      msgLoadInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0]; if (!file) return;
+        const buf = await file.arrayBuffer();
+        let indexBuf = null;
+        if (sssMkfSubfiles && sssMkfSubfiles.length > 3) {
+          indexBuf = sssMkfSubfiles[3].buffer;
+        }
+        msgDataCache = parseMMsg(buf, indexBuf);
+        console.log('M.MSG 手动加载:', msgDataCache.count, '条对话');
+        if (sssDataPanelOpen && sssDataCurrentTab === 'messages') renderSssMessages();
+        updateStatus('M.MSG 已加载: ' + msgDataCache.count + ' 条对话');
+      });
+    }
+    const wordLoadBtn = document.getElementById('btn-load-word');
+    const wordLoadInput = document.getElementById('word-load-input');
+    if (wordLoadBtn && wordLoadInput) {
+      wordLoadBtn.addEventListener('click', () => wordLoadInput.click());
+      wordLoadInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0]; if (!file) return;
+        const buf = await file.arrayBuffer();
+        wordDataCache = parseWordDat(buf);
+        console.log('WORD.DAT 手动加载:', wordDataCache.names.length, '个名称');
+        if (sssDataPanelOpen && (sssDataCurrentTab === 'items' || sssDataCurrentTab === 'objects')) {
+          switchSssDataTab(sssDataCurrentTab);
+        }
+        updateStatus('WORD.DAT 已加载: ' + wordDataCache.names.length + ' 个名称');
+      });
+    }
+    bindSssScriptView();
+  }
 
   function getTiles() { return tiles; }
   function getMiniTiles() { return miniTiles; }

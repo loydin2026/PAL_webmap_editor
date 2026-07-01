@@ -31,7 +31,7 @@
             <button id="btn-template" class="tool-btn" data-tool="template" title="模板">🍪模板</button>
             <button id="btn-erase" class="tool-btn" data-tool="erase" title="擦除">🧹擦除</button>
             <button id="btn-barrier" class="tool-btn" data-tool="barrier" title="障碍">🚧障碍</button>
-            <button id="btn-event" class="tool-btn" data-tool="event" title="事件">📌事件</button>
+            <button id="btn-event" class="tool-btn" data-tool="event" title="事件">📌添加事件</button>
             <button id="btn-layer0" class="layer-btn active" data-layer="0" title="编辑第0层">图层0</button>
             <button id="btn-layer1" class="layer-btn" data-layer="1" title="编辑第1层">图层1</button>
             <div class="toolbar-toggle-group">
@@ -71,6 +71,7 @@
             </div>
             <div class="toolbar-spacer"></div>
             <button id="btn-toggle-panel" title="显示/隐藏属性面板">📋属性面板</button>
+            <button id="btn-sss-data" title="SSS数据编辑器">📊SSS数据</button>
         </div>
 
         <!-- 主工作区 -->
@@ -197,15 +198,19 @@
                             <div class="attr-group-title">事件对象</div>
                             <div class="attr-row attr-row-single">
                                 <label>事件 ID:</label>
-                                <span id="attr-event-id">-1</span>
+                                <select id="attr-event-id" style="min-width:80px;flex:1"></select>
                             </div>
                             <div class="attr-row attr-row-single">
                                 <label>触发脚本:</label>
                                 <input type="number" id="attr-event-trigger-script" min="0" max="65535">
+                                <button id="btn-new-trigger-script" class="btn-edit-script btn-new-script" title="创建新脚本">+</button>
+                                <button id="btn-edit-trigger-script" class="btn-edit-script">编辑</button>
                             </div>
                             <div class="attr-row attr-row-single">
                                 <label>自动脚本:</label>
                                 <input type="number" id="attr-event-auto-script" min="0" max="65535">
+                                <button id="btn-new-auto-script" class="btn-edit-script btn-new-script" title="创建新脚本">+</button>
+                                <button id="btn-edit-auto-script" class="btn-edit-script">编辑</button>
                             </div>
                             <div class="attr-row attr-row-single">
                                 <label>触发方式:</label>
@@ -238,20 +243,8 @@
                                 <input type="number" id="attr-event-status" min="0" max="65535">
                             </div>
                             <div class="attr-row attr-row-single">
-                                <label>消失时间:</label>
-                                <input type="number" id="attr-event-vanish" min="0" max="65535">
-                            </div>
-                            <div class="attr-row attr-row-single">
-                                <label>自动帧数:</label>
-                                <input type="number" id="attr-event-frames-auto" min="0" max="65535">
-                            </div>
-                            <div class="attr-row attr-row-single">
-                                <label>自动跳转:</label>
-                                <input type="number" id="attr-event-scr-jmp-auto" min="0" max="65535">
-                            </div>
-                            <div class="attr-row attr-row-single">
                                 <label>移动:</label>
-                                <button id="btn-event-play" style="width:auto;padding:4px 12px;">▶ 播放</button>
+                                <button id="btn-event-play" class="btn-event-play">▶ 播放</button>
                             </div>
                         </div>
                         <div class="attr-row" id="attr-row-template" style="display:none">
@@ -335,6 +328,171 @@
         </div>
     </div>
 
+    <!-- 脚本编辑器模态框 -->
+    <div id="script-editor-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>📜 脚本编辑器</h3>
+                <button id="script-editor-close" class="modal-close">×</button>
+            </div>
+            <div class="modal-toolbar">
+                <span id="script-editor-info">脚本地址: 0x0000</span>
+                <button id="btn-script-undo" class="secondary">↩️ 撤销</button>
+                <button id="btn-script-redo" class="secondary">↪️ 重做</button>
+                <button id="btn-script-save">💾 保存</button>
+                <button id="btn-script-ref" class="secondary">📋 指令参考</button>
+                <button id="btn-script-revert" class="danger">↺ 还原</button>
+            </div>
+            <div class="script-editor-body">
+                <div class="script-editor-main">
+                    <div class="scroll-table">
+                        <table id="script-editor-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-actions">操作</th>
+                                    <th class="col-offset">偏移</th>
+                                    <th>指令</th>
+                                    <th>参数1</th>
+                                    <th>参数2</th>
+                                    <th>参数3</th>
+                                    <th>说明</th>
+                                </tr>
+                            </thead>
+                            <tbody id="script-editor-tbody"></tbody>
+                        </table>
+                    </div>
+                    <div class="script-editor-hint">
+                        💡 提示：从下拉菜单选择指令，修改参数（十进制数字）即可。点击参数旁的 🔗 可跳转到对应数据编辑器。
+                    </div>
+                </div>
+                <div id="script-cmd-reference" class="hidden">
+                    <div class="script-cmd-ref-header">
+                        <span>📋 指令参考表</span>
+                        <button id="script-cmd-ref-close" class="script-cmd-ref-close">×</button>
+                    </div>
+                    <div id="script-cmd-ref-list">加载中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SSS 数据面板（默认隐藏，点击SSS数据按钮显示） -->
+    <div id="sss-data-panel" class="modal hidden">
+        <div class="modal-content" style="max-width:900px;height:80vh;display:flex;flex-direction:column">
+            <div class="modal-header">
+                <h3>📊 SSS 数据编辑器</h3>
+                <button id="sss-data-close" class="modal-close">×</button>
+            </div>
+            <div class="tabs" id="sss-data-tabs" style="flex-shrink:0">
+                <div class="tab active" data-sss-tab="messages">💬 对话</div>
+                <div class="tab" data-sss-tab="events">📍 事件</div>
+                <div class="tab" data-sss-tab="scenes">🗺️ 场景</div>
+                <div class="tab" data-sss-tab="items">🗡️ 物品</div>
+                <div class="tab" data-sss-tab="objects">📦 对象</div>
+                <div class="tab" data-sss-tab="scripts">📜 脚本</div>
+                <div class="tab" data-sss-tab="export">💾 导出</div>
+            </div>
+            <div class="sss-data-body" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+                <!-- Messages -->
+                <div class="sss-tab-content active" id="sss-tab-messages">
+                    <div class="search-box" style="padding:8px">
+                        <input type="text" id="sss-msg-search" placeholder="搜索对话内容..." style="flex:1">
+                        <button id="sss-msg-search-btn">🔍</button>
+                        <button id="sss-msg-clear-btn" class="secondary">清除</button>
+                        <button id="sss-msg-new-btn" class="btn-new-script" style="padding:4px 10px;font-size:12px">+ 新建</button>
+                        <span class="small">共 <span id="sss-msg-count">0</span> 条</span>
+                    </div>
+                    <div class="scroll-table" style="flex:1">
+                        <table><thead><tr><th class="col-id">#</th><th>Offset</th><th>Len</th><th>Content</th></tr></thead><tbody id="sss-msg-table"></tbody></table>
+                    </div>
+                    <div class="pager" id="sss-msg-pager"></div>
+                </div>
+                <!-- Events -->
+                <div class="sss-tab-content" id="sss-tab-events">
+                    <div class="search-box" style="padding:8px">
+                        <input type="text" id="sss-evt-search" placeholder="搜索事件ID或脚本..." style="flex:1">
+                        <select id="sss-evt-trigger-filter">
+                            <option value="">全部触发</option>
+                            <option value="0">0-无</option>
+                            <option value="1">1-近距离调查</option>
+                            <option value="2">2-中距离调查</option>
+                            <option value="3">3-远距离调查</option>
+                            <option value="4">4-接触</option>
+                            <option value="5">5-中距离接触</option>
+                            <option value="6">6-远距离接触</option>
+                            <option value="7">7-超远距离接触</option>
+                        </select>
+                        <button id="sss-evt-search-btn">🔍</button>
+                        <button id="sss-evt-clear-btn" class="secondary">清除</button>
+                    </div>
+                    <div class="scroll-table" style="flex:1">
+                        <table><thead><tr><th class="col-id">#</th><th>X</th><th>GameX</th><th>Y</th><th>GameY</th><th>Layer</th><th>触发脚本</th><th>自动脚本</th><th>触发</th></tr></thead><tbody id="sss-evt-table"></tbody></table>
+                    </div>
+                    <div class="pager" id="sss-evt-pager"></div>
+                </div>
+                <!-- Scenes -->
+                <div class="sss-tab-content" id="sss-tab-scenes">
+                    <div class="scroll-table" style="flex:1">
+                        <table><thead><tr><th class="col-id">#</th><th>MapID</th><th>进入脚本</th><th>脱离脚本</th><th>LastEvent</th><th>事件范围</th></tr></thead><tbody id="sss-scene-table"></tbody></table>
+                    </div>
+                    <div class="pager" id="sss-scene-pager"></div>
+                </div>
+                <!-- Items -->
+                <div class="sss-tab-content" id="sss-tab-items">
+                    <div class="search-box" style="padding:8px">
+                        <input type="text" id="sss-item-search" placeholder="搜索物品名称或ID..." style="flex:1">
+                        <button id="sss-item-search-btn">🔍</button>
+                    </div>
+                    <div class="grid-2" id="sss-item-grid" style="flex:1;overflow:auto"></div>
+                    <div class="pager" id="sss-item-pager"></div>
+                </div>
+                <!-- Objects -->
+                <div class="sss-tab-content" id="sss-tab-objects">
+                    <div class="btn-group" style="padding:8px">
+                        <button class="sss-obj-type-btn active" data-type="system">系统</button>
+                        <button class="sss-obj-type-btn" data-type="character">人物</button>
+                        <button class="sss-obj-type-btn" data-type="item">物品</button>
+                        <button class="sss-obj-type-btn" data-type="magic">仙术</button>
+                        <button class="sss-obj-type-btn" data-type="monster">怪物</button>
+                        <button class="sss-obj-type-btn" data-type="poison">中毒</button>
+                    </div>
+                    <div class="scroll-table" style="flex:1">
+                        <table id="sss-obj-table"><thead><tr><th class="col-id">ID</th><th>Name</th><th>Val0</th><th>Val1</th><th>Val2</th><th>Val3</th><th>Val4</th><th>Val5</th></tr></thead><tbody></tbody></table>
+                    </div>
+                </div>
+                <!-- Scripts -->
+                <div class="sss-tab-content" id="sss-tab-scripts">
+                    <div class="search-box" style="padding:8px">
+                        <input type="text" id="sss-script-id" placeholder="脚本地址(hex)" style="flex:1">
+                        <button id="sss-script-view-btn">👁️ 查看</button>
+                        <button id="sss-script-find-btn" class="secondary">查找事件</button>
+                    </div>
+                    <div class="card" id="sss-script-view" style="flex:1;overflow:auto;font-family:monospace;white-space:pre-wrap;padding:10px">输入脚本地址查看...</div>
+                </div>
+                <!-- Export -->
+                <div class="sss-tab-content" id="sss-tab-export">
+                    <div style="padding:20px;text-align:center">
+                        <p class="hint">导出修改后的 SSS.MKF / M.MSG / WORD.DAT 文件</p>
+                        <div class="btn-group" style="justify-content:center;margin-top:20px">
+                            <button id="sss-export-mkf">📦 导出 SSS.MKF</button>
+                            <button id="sss-export-msg">📄 导出 M.MSG</button>
+                            <button id="sss-export-word">📄 导出 WORD.DAT</button>
+                        </div>
+                        <div style="margin-top:20px;padding-top:20px;border-top:1px solid #3a3a40">
+                            <p class="hint">手动加载数据文件（M.MSG / WORD.DAT）</p>
+                            <div class="btn-group" style="justify-content:center;margin-top:10px">
+                                <input type="file" id="msg-load-input" accept=".MSG,.msg" style="display:none">
+                                <button id="btn-load-msg">📂 加载 M.MSG</button>
+                                <input type="file" id="word-load-input" accept=".DAT,.dat" style="display:none">
+                                <button id="btn-load-word">📂 加载 WORD.DAT</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 加载顺序 -->
     <script src="js/palette.js"></script>
     <script src="js/gop-loader.js"></script>
@@ -346,5 +504,36 @@
     <script src="js/template-editor.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/main.js"></script>
+
+    <!-- 消息选择器模态框 -->
+    <div id="msg-selector-modal" class="modal hidden">
+        <div class="modal-content" style="max-width:800px;height:80vh;display:flex;flex-direction:column">
+            <div class="modal-header">
+                <h3>💬 选择消息编号</h3>
+                <button id="msg-selector-close" class="modal-close">×</button>
+            </div>
+            <div class="modal-toolbar">
+                <input type="text" id="msg-selector-search" placeholder="搜索消息内容..." style="flex:1;margin-right:8px">
+                <button id="msg-selector-new-btn" class="btn-new-script" style="padding:4px 12px;font-size:12px">+ 新建消息</button>
+                <button id="msg-selector-ok-btn" class="primary" style="margin-left:8px" disabled>确定</button>
+            </div>
+            <div class="scroll-table" style="flex:1">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width:60px">选择</th>
+                            <th class="col-id">#</th>
+                            <th>内容</th>
+                        </tr>
+                    </thead>
+                    <tbody id="msg-selector-tbody"></tbody>
+                </table>
+            </div>
+            <div class="pager" id="msg-selector-pager"></div>
+            <div style="padding:8px;border-top:1px solid #3a3a40;background:#2a2a30;flex-shrink:0">
+                <span class="small">已选: <span id="msg-selector-selected">无</span></span>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

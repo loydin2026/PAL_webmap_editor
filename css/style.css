@@ -250,8 +250,7 @@ body {
 .drawer-header {
     display: flex;
     align-items: center;
-    padding: 8px 12px;
-    background: #2d2d2f;
+;
     cursor: pointer;
     user-select: none;
     font-size: 13px;
@@ -794,8 +793,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 12px;
-    background: #2d2d2f;
+;
     border-bottom: 1px solid #3a3a40;
     font-size: 13px;
     font-weight: 600;
@@ -835,8 +833,7 @@ body {
 #info-panel .panel-section::-webkit-scrollbar {
     display: none;
 }
-    padding: 8px 12px;
-    background: #2d2d2f;
+;
     border-bottom: 1px solid #3a3a40;
     font-size: 13px;
     font-weight: 600;
@@ -1005,10 +1002,8 @@ body {
     background: #252529;
     border: 1px solid #3a3a40;
     border-radius: 8px;
-    width: 920px;
-    max-width: 95vw;
-    height: 560px;
-    max-height: 90vh;
+    width: 80%;
+    height: 90%;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -1456,8 +1451,7 @@ body {
 .section-header {
     display: flex;
     align-items: center;
-    padding: 8px 12px;
-    background: #2d2d2f;
+;
     font-size: 13px;
     font-weight: 600;
     gap: 8px;
@@ -1480,7 +1474,1039 @@ body {
     -ms-overflow-style: none;
 }
 
-#tab-content-template::-webkit-scrollbar {
+
+#script-cmd-reference {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 220px;
+    background: #252529;
+    border: 1px solid #3a3a40;
+    border-radius: 6px 0 0 6px;
+    overflow: hidden;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+}
+#script-cmd-reference.hidden {
     display: none;
 }
 
+.script-cmd-ref-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+;
+    border-bottom: 1px solid #3a3a40;
+    font-weight: 600;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+.script-cmd-ref-close {
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 16px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 4px;
+}
+.script-cmd-ref-close:hover {
+    color: #fff;
+}
+#script-cmd-ref-list {
+    padding: 8px;
+    font-size: 11px;
+    line-height: 1.8;
+    overflow-y: auto;
+    flex: 1;
+}
+#script-cmd-ref-list .ref-item {
+    display: flex;
+    gap: 6px;
+    padding: 2px 0;
+    border-bottom: 1px solid #333;
+}
+
+#script-cmd-ref-list .ref-name {
+    color: #ccc;
+}
+
+/* ===== 通用标签页 ===== */
+.tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid #3a3a40;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    background: #2d2d2f;
+    flex-shrink: 0;
+}
+.tab {
+    padding: 8px 14px;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    font-size: 13px;
+    color: #9a9da5;
+    transition: all 0.15s;
+    white-space: nowrap;
+    user-select: none;
+}
+.tab:hover {
+    color: #c0c2c8;
+    background: rgba(255,255,255,0.03);
+}
+.tab.active {
+    color: #2b8aee;
+    border-bottom-color: #2b8aee;
+    background: rgba(43,138,238,0.06);
+}
+.sss-tab-content {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+}
+.sss-tab-content.active {
+    display: flex;
+}
+
+/* SSS 数据面板标签页 */
+
+/* SSS 数据面板中复用现有样式 */
+#sss-data-panel .col-id {
+    text-align: center;
+    width: 50px;
+}
+#sss-data-panel .pager {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 10px;
+    border-top: 1px solid #3a3a40;
+}
+#sss-data-panel .pager span {
+    min-width: 100px;
+    text-align: center;
+    font-size: 12px;
+}
+#sss-data-panel .pager button {
+    padding: 4px 10px;
+    background: #3a3a40;
+    color: #d8dade;
+    border: 1px solid #4a4a50;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+#sss-data-panel .pager button:hover {
+    background: #4a4a50;
+}
+#sss-data-panel .pager button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+#sss-data-panel .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 10px;
+    padding: 8px;
+}
+#sss-data-panel .card {
+    background: #2d2d2f;
+    border: 1px solid #3a3a40;
+    border-radius: 6px;
+    padding: 10px;
+}
+#sss-data-panel .card h3 {
+    font-size: 13px;
+    color: #2b8aee;
+    margin-bottom: 6px;
+}
+#sss-data-panel .field-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin: 3px 0;
+    font-size: 12px;
+}
+#sss-data-panel .field-row label {
+    min-width: 80px;
+    color: #9a9da5;
+    font-size: 11px;
+}
+#sss-data-panel .attr-check {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 4px 0;
+}
+#sss-data-panel .attr-check label {
+    font-size: 11px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+#sss-data-panel .attr-check input[type="checkbox"] {
+    accent-color: #2b8aee;
+    width: 14px;
+    height: 14px;
+}
+#sss-data-panel .modified-row td {
+    background: rgba(240, 165, 0, 0.12) !important;
+}
+#sss-data-panel .hex {
+    font-family: monospace;
+    color: #aaa;
+}
+#sss-data-panel .coord-raw {
+    font-size: 11px;
+    color: #888;
+}
+#sss-data-panel .small {
+    font-size: 11px;
+    color: #888;
+}
+#sss-data-panel .hint {
+    font-size: 11px;
+    color: #888;
+}
+#sss-data-panel .search-box {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    border-bottom: 1px solid #3a3a40;
+}
+#sss-data-panel .search-box input,
+#sss-data-panel .search-box select {
+    padding: 5px 8px;
+    background: #1e1e22;
+    color: #e1e3e6;
+    border: 1px solid #3a3a40;
+    border-radius: 4px;
+    font-size: 12px;
+}
+#sss-data-panel .search-box button {
+    padding: 5px 10px;
+    background: #2b8aee;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+#sss-data-panel .search-box button.secondary {
+    background: #3a3a40;
+    color: #d8dade;
+    border: 1px solid #4a4a50;
+}
+#sss-data-panel .btn-group button {
+    padding: 5px 10px;
+    background: #2b8aee;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+#sss-data-panel .btn-group button.secondary {
+    background: #3a3a40;
+    color: #d8dade;
+    border: 1px solid #4a4a50;
+}
+#sss-data-panel .btn-group button.danger {
+    background: #e74c3c;
+}
+#sss-data-panel .btn-group button.sss-obj-type-btn {
+    background: #3a3a40;
+    color: #d8dade;
+    border: 1px solid #4a4a50;
+}
+#sss-data-panel .btn-group button.sss-obj-type-btn.active {
+    background: #2b8aee;
+    color: #fff;
+    border-color: #2b8aee;
+}
+#sss-data-panel .scroll-table {
+    overflow: auto;
+    flex: 1;
+}
+#sss-data-panel table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+#sss-data-panel th,
+#sss-data-panel td {
+    padding: 5px 7px;
+    border: 1px solid #3a3a40;
+    text-align: left;
+}
+#sss-data-panel th {
+    background: #2d2d2f;
+    color: #2b8aee;
+    position: sticky;
+    top: 0;
+}
+#sss-data-panel tr:hover td {
+    background: rgba(43, 138, 238, 0.08);
+}
+
+
+
+/* ============================================
+   属性面板美化
+   ============================================ */
+#info-panel {
+    width: 250px;
+    background: #1e1e22;
+    border: 1px solid #2d2d30;
+    border-radius: 8px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
+    overflow: hidden;
+}
+
+#info-panel .drag-header {
+    background: #252529;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #e1e3e6;
+    border-bottom: 1px solid #2d2d30;
+    letter-spacing: 0.5px;
+}
+
+#info-panel .drag-header:hover {
+    background: #2a2a2e;
+}
+
+#info-panel .drag-header #drag-close {
+    font-size: 18px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.15s;
+    padding: 0;
+    line-height: 1;
+}
+
+#info-panel .drag-header #drag-close:hover {
+    background: #e74c3c;
+    color: #fff;
+}
+
+#info-panel .panel-section {
+    padding: 0;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #3a3a40 transparent;
+}
+
+#info-panel .panel-section::-webkit-scrollbar {
+    width: 4px;
+}
+
+#info-panel .panel-section::-webkit-scrollbar-thumb {
+    background: #3a3a40;
+    border-radius: 2px;
+}
+
+.attr-group {
+    padding: 0;
+    border-bottom: 1px solid #252528;
+}
+
+.attr-group:last-child {
+    border-bottom: none;
+}
+
+.attr-group-title {
+    padding: 6px 14px;
+    font-size: 10px;
+    color: #2b8aee;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    background: rgba(43,138,238,0.06);
+    border-bottom: 1px solid rgba(43,138,238,0.1);
+}
+
+.attr-row {
+    padding: 7px 14px;
+    gap: 10px;
+    min-height: 36px;
+    transition: background 0.1s;
+}
+
+.attr-row:hover {
+    background: rgba(255,255,255,0.02);
+}
+
+.attr-row label {
+    min-width: 64px;
+    color: #9a9da5;
+    font-size: 11px;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.attr-row input[type="number"] {
+    flex: 1;
+    width: auto;
+    min-width: 50px;
+    padding: 5px 8px;
+    background: #252529;
+    border: 1px solid #2d2d30;
+    border-radius: 5px;
+    font-size: 12px;
+    color: #e1e3e6;
+    transition: all 0.15s;
+}
+
+.attr-row input[type="number"]:focus {
+    border-color: #2b8aee;
+    background: #1e1e22;
+    box-shadow: 0 0 0 2px rgba(43,138,238,0.15);
+}
+
+.attr-row input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: #2b8aee;
+    cursor: pointer;
+}
+
+.attr-row select {
+    flex: 1;
+    padding: 5px 8px;
+    background: #252529;
+    border: 1px solid #2d2d30;
+    border-radius: 5px;
+    font-size: 12px;
+    color: #e1e3e6;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.attr-row select:focus {
+    border-color: #2b8aee;
+    box-shadow: 0 0 0 2px rgba(43,138,238,0.15);
+    outline: none;
+}
+
+.attr-row select option {
+    background: #1e1e22;
+    color: #e1e3e6;
+}
+
+.btn-edit-script {
+    padding: 4px 10px;
+    background: #3a3a40;
+    color: #d8dade;
+    border: 1px solid #4a4a50;
+    border-radius: 5px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.btn-edit-script:hover {
+    background: #4a4a50;
+    border-color: #5a5a60;
+}
+
+.btn-new-script {
+    background: #2a5a3a;
+    border-color: #3a7a4a;
+    color: #a0f0b0;
+    padding: 4px 8px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.btn-new-script:hover {
+    background: #3a7a4a;
+    border-color: #4a9a5a;
+}
+
+.btn-event-play {
+    padding: 5px 12px;
+    background: #2b8aee;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.btn-event-play:hover {
+    background: #3a9af0;
+}
+
+#btn-apply-attr {
+    margin: 12px 14px;
+    padding: 8px 16px;
+    background: #2b8aee;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    width: calc(100% - 28px);
+    letter-spacing: 0.5px;
+}
+
+#btn-apply-attr:hover {
+    background: #3a9af0;
+    box-shadow: 0 2px 8px rgba(43,138,238,0.3);
+}
+
+#btn-apply-attr:active {
+    transform: translateY(1px);
+}
+
+#btn-create-template {
+    width: calc(100% - 28px);
+    margin: 0 14px 12px;
+    padding: 8px 16px;
+    background: #2d8a5e;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+#btn-create-template:hover {
+    background: #35a06e;
+    box-shadow: 0 2px 8px rgba(45,138,94,0.3);
+}
+
+#attr-event-id {
+    font-family: monospace;
+    font-weight: 600;
+    color: #2b8aee;
+    font-size: 12px;
+    min-width: 80px;
+    flex: 1;
+    padding: 4px 6px;
+    background: #252529;
+    border: 1px solid #2d2d30;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+#attr-event-id:focus {
+    border-color: #2b8aee;
+    box-shadow: 0 0 0 2px rgba(43,138,238,0.15);
+    outline: none;
+}
+
+#attr-event-id option {
+    background: #1e1e22;
+    color: #e1e3e6;
+    font-weight: 500;
+}
+
+#attr-xy {
+    font-family: monospace;
+    font-weight: 600;
+    color: #e1e3e6;
+    font-size: 12px;
+}
+
+
+/* ============================================
+   脚本编辑器美化
+   ============================================ */
+#script-editor-modal .modal-content {
+    width: 100vw;
+    height: 100vh;
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+    background: #1e1e22;
+    border: none;
+    box-shadow: none;
+    overflow: hidden;
+}
+
+#script-editor-modal .modal-header {
+    background: #252529;
+    padding: 12px 18px;
+    border-bottom: 1px solid #2d2d30;
+}
+
+#script-editor-modal .modal-header h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #e1e3e6;
+    letter-spacing: 0.3px;
+}
+
+#script-editor-modal .modal-header .modal-close {
+    font-size: 20px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px;
+    padding: 0;
+    transition: all 0.15s;
+}
+
+#script-editor-modal .modal-header .modal-close:hover {
+    background: #e74c3c;
+    color: #fff;
+}
+
+#script-editor-modal .modal-toolbar {
+    padding: 10px 16px;
+    background: #1e1e22;
+    border-bottom: 1px solid #2d2d30;
+    gap: 8px;
+}
+
+#script-editor-info {
+    margin-right: 12px;
+    font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px;
+    color: #aaa;
+    background: #252529;
+    padding: 4px 10px;
+    border-radius: 5px;
+    border: 1px solid #2d2d30;
+    letter-spacing: 0;
+}
+
+#script-editor-modal .modal-toolbar button {
+    padding: 5px 12px;
+    font-size: 12px;
+    border-radius: 5px;
+    transition: all 0.15s;
+    font-weight: 500;
+    border: 1px solid transparent;
+}
+
+#script-editor-modal .modal-toolbar button.secondary {
+    background: #252529;
+    border-color: #2d2d30;
+    color: #b0b2b8;
+}
+
+#script-editor-modal .modal-toolbar button.secondary:hover {
+    background: #2d2d30;
+    border-color: #3a3a40;
+    color: #e1e3e6;
+}
+
+#script-editor-modal .modal-toolbar #btn-script-save {
+    background: #2b8aee;
+    border-color: #2b8aee;
+    color: #fff;
+}
+
+#script-editor-modal .modal-toolbar #btn-script-save:hover {
+    background: #3a9af0;
+    border-color: #3a9af0;
+    box-shadow: 0 2px 8px rgba(43,138,238,0.25);
+}
+
+#script-editor-modal .modal-toolbar #btn-script-revert {
+    margin-left: auto;
+    background: #2d2d30;
+    border-color: #e74c3c;
+    color: #e74c3c;
+}
+
+#script-editor-modal .modal-toolbar #btn-script-revert:hover {
+    background: #e74c3c;
+    color: #fff;
+}
+
+.script-editor-body {
+    display: flex;
+    gap: 0;
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    background: #1e1e22;
+}
+
+.script-editor-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 12px 16px;
+}
+
+.script-editor-main .scroll-table {
+    flex: 1;
+    overflow: auto;
+    border: 1px solid #2d2d30;
+    border-radius: 8px;
+    background: #252529;
+    max-height: none;
+}
+
+.script-editor-hint {
+    margin-top: auto;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #888;
+    background: rgba(43,138,238,0.05);
+    border: 1px solid rgba(43,138,238,0.1);
+    border-radius: 6px;
+    line-height: 1.5;
+}
+
+/* 脚本编辑器表格 */
+#script-editor-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 14px;
+}
+
+#script-editor-table thead th {
+    padding: 16px 12px;
+    background: #1e1e22;
+    color: #2b8aee;
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid #2d2d30;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+#script-editor-table tbody tr {
+    transition: background 0.1s;
+}
+
+#script-editor-table tbody tr:nth-child(even) {
+    background: rgba(255,255,255,0.015);
+}
+
+#script-editor-table tbody tr:hover {
+    background: rgba(43,138,238,0.06);
+}
+
+#script-editor-table td {
+    padding: 12px 10px;
+    border-bottom: 1px solid #2d2d30;
+    vertical-align: middle;
+}
+
+#script-editor-table td.col-offset {
+    width: 60px;
+    font-family: 'Fira Code', monospace;
+    font-size: 13px;
+    color: #888;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+#script-editor-table td.col-actions {
+    width: 50px;
+    padding: 8px 4px;
+    text-align: center;
+}
+
+/* 指令选择下拉框 */
+#script-editor-table select.script-cmd-select {
+    width: 100%;
+    max-width: 260px;
+    padding: 8px 10px;
+    background: #1e1e22;
+    color: #e1e3e6;
+    border: 1px solid #2d2d30;
+    border-radius: 5px;
+    font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    outline: none;
+}
+
+#script-editor-table select.script-cmd-select:focus {
+    border-color: #2b8aee;
+    box-shadow: 0 0 0 2px rgba(43,138,238,0.15);
+}
+
+#script-editor-table select.script-cmd-select option {
+    background: #1e1e22;
+    color: #e1e3e6;
+    font-size: 14px;
+}
+
+/* 参数单元格 */
+#script-editor-table td.script-param-cell {
+    padding: 6px 8px;
+    vertical-align: top;
+    min-width: 70px;
+}
+
+#script-editor-table .param-label {
+    font-size: 11px;
+    color: #666;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
+    margin-bottom: 2px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
+#script-editor-table .param-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+#script-editor-table .param-row input[type="number"] {
+    width: 152px;
+    padding: 6px 10px;
+    background: #1e1e22;
+    color: #e1e3e6;
+    border: 1px solid #2d2d30;
+    border-radius: 4px;
+    font-family: 'Fira Code', monospace;
+    font-size: 14px;
+    text-align: right;
+    transition: all 0.15s;
+    outline: none;
+}
+
+#script-editor-table .param-row input[type="number"]:focus {
+    border-color: #2b8aee;
+    box-shadow: 0 0 0 2px rgba(43,138,238,0.15);
+}
+
+#script-editor-table .param-jump {
+    background: none;
+    border: none;
+    color: #2b8aee;
+    cursor: pointer;
+    font-size: 15px;
+    padding: 4px 6px;
+    line-height: 1;
+    border-radius: 3px;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+
+#script-editor-table .param-jump:hover {
+    background: rgba(43,138,238,0.15);
+    color: #4dabf7;
+}
+
+#script-editor-table .param-jump[data-type="none"] {
+    display: none;
+}
+
+#script-editor-table .script-cmd-name {
+    color: #7a9a7a;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+}
+
+/* 操作按钮 */
+#script-editor-table .script-actions {
+    display: flex;
+    gap: 2px;
+    justify-content: center;
+}
+
+#script-editor-table .script-actions button {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 16px;
+    font-weight: 700;
+    border-radius: 4px;
+    cursor: pointer;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    transition: all 0.15s;
+}
+
+#script-editor-table .script-actions .btn-insert {
+    background: #2d8a5e;
+    color: #fff;
+}
+
+#script-editor-table .script-actions .btn-insert:hover {
+    background: #35a06e;
+    box-shadow: 0 0 6px rgba(45,138,94,0.3);
+}
+
+#script-editor-table .script-actions .btn-delete {
+    background: #8a2d2d;
+    color: #fff;
+}
+
+#script-editor-table .script-actions .btn-delete:hover {
+    background: #a03535;
+    box-shadow: 0 0 6px rgba(160,53,53,0.3);
+}
+
+/* 头像预览 */
+#script-editor-table .face-preview {
+    width: 32px;
+    height: 32px;
+    image-rendering: pixelated;
+    border: 1px solid #2d2d30;
+    border-radius: 4px;
+    margin-left: 3px;
+    background: #1e1e22;
+    object-fit: contain;
+}
+
+/* 消息预览 */
+#script-editor-table .msg-preview {
+    font-size: 12px;
+    color: #999;
+    margin-left: 3px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: middle;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* 指令参考弹窗 */
+#script-cmd-reference {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 220px;
+    background: #1e1e22;
+    border: 1px solid #2d2d30;
+    border-radius: 8px 0 0 8px;
+    overflow: hidden;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    box-shadow: -4px 0 16px rgba(0,0,0,0.3);
+}
+
+#script-cmd-reference.hidden {
+    display: none;
+}
+
+.script-cmd-ref-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: #252529;
+    border-bottom: 1px solid #2d2d30;
+    font-weight: 700;
+    font-size: 12px;
+    color: #e1e3e6;
+    flex-shrink: 0;
+}
+
+.script-cmd-ref-close {
+    background: none;
+    border: none;
+    color: #9a9da5;
+    font-size: 18px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 2px 5px;
+    border-radius: 4px;
+    transition: all 0.15s;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.script-cmd-ref-close:hover {
+    background: #e74c3c;
+    color: #fff;
+}
+
+#script-cmd-ref-list {
+    padding: 8px 12px;
+    font-size: 11px;
+    line-height: 1.8;
+    overflow-y: auto;
+    flex: 1;
+    scrollbar-width: thin;
+    scrollbar-color: #3a3a40 transparent;
+}
+
+#script-cmd-ref-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+#script-cmd-ref-list::-webkit-scrollbar-thumb {
+    background: #3a3a40;
+    border-radius: 2px;
+}
+
+#script-cmd-ref-list .ref-item {
+    display: flex;
+    gap: 8px;
+    padding: 2px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    align-items: center;
+}
+
+#script-cmd-ref-list .ref-hex {
+    color: #2b8aee;
+    font-family: 'Fira Code', monospace;
+    flex-shrink: 0;
+    min-width: 44px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+#script-cmd-ref-list .ref-name {
+    color: #aaa;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#script-cmd-ref-list .ref-item:hover .ref-name {
+    color: #e1e3e6;
+}

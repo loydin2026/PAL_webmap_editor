@@ -90,7 +90,7 @@ const Editor = (function () {
       // 自动行走：沿着 SSS 脚本移动路径一格一格移动（方向只在目标切换时更新）
       if (ev.moving && ev.autoScript > 0 && typeof SssScriptLoader !== 'undefined' && SssScriptLoader.isLoaded()) {
         if (!ev.movePath) {
-          ev.movePath = SssScriptLoader.extractMovePath(ev.autoScript);
+          ev.movePath = SssScriptLoader.extractMovePath(ev.autoScript, ev.x, ev.y);
           ev.movePathIndex = 0;
           // 初始化方向：基于第一个目标的第一步等距方向
           const firstTarget = ev.movePath[0];
@@ -242,7 +242,13 @@ const Editor = (function () {
 
   // ========== 事件对象管理 ==========
   function getEvents() { return events; }
-  function setEvents(list) { events = list || []; }
+  function setEvents(list) {
+    events = (list || []).map(ev => {
+      if (ev.originX === undefined) ev.originX = ev.x;
+      if (ev.originY === undefined) ev.originY = ev.y;
+      return ev;
+    });
+  }
   function clearEvents() { events = []; selectedEventId = -1; nextEventId = 0; }
 
   function addEvent(eventData) {
@@ -250,6 +256,8 @@ const Editor = (function () {
     nextEventId = Math.max(nextEventId, id + 1);
     events.push({
       id: id,
+      originX: eventData.x || 0,
+      originY: eventData.y || 0,
       originalIdx: eventData.originalIdx,
       vanishTime: eventData.vanishTime || 0,
       x: eventData.x || 0,
@@ -307,11 +315,17 @@ const Editor = (function () {
     return null;
   }
 
+  // 获取同一 tile 上的所有事件（按图层排序，高图层在前）
+  function getEventsAtTile(x, y) {
+    return events.filter(e => e.x === x && e.y === y).sort((a, b) => b.layer - a.layer);
+  }
+
   function copyEvent() {
     const ev = getEvent(selectedEventId);
     if (!ev) return false;
     copiedEvent = JSON.parse(JSON.stringify(ev));
     delete copiedEvent.id; // 粘贴时重新分配 ID
+    delete copiedEvent.originalIdx; // 粘贴时不保留原始索引，避免覆盖原事件
     return true;
   }
 
@@ -325,6 +339,7 @@ const Editor = (function () {
     const data = JSON.parse(JSON.stringify(copiedEvent));
     data.x = x;
     data.y = y;
+    delete data.originalIdx; // 确保粘贴的事件没有 originalIdx
     return addEvent(data);
   }
 
@@ -338,7 +353,9 @@ const Editor = (function () {
     if (!ev) return [];
     if (typeof SssScriptLoader === 'undefined' || !SssScriptLoader.isLoaded()) return [];
     if (!ev.autoScript || ev.autoScript === 0) return [];
-    return SssScriptLoader.extractMovePath(ev.autoScript);
+    const sx = ev.originX !== undefined ? ev.originX : ev.x;
+    const sy = ev.originY !== undefined ? ev.originY : ev.y;
+    return SssScriptLoader.extractMovePath(ev.autoScript, sx, sy);
   }
 
   function init() {
@@ -700,7 +717,7 @@ const Editor = (function () {
     setTileSnapshotProvider, setTileRestoreProvider,
     // 事件
     getEvents, setEvents, clearEvents,
-    addEvent, removeEvent, getEvent, updateEvent,
+    addEvent, removeEvent, getEvent, updateEvent, getEventsAtTile,
     setSelectedEventId, getSelectedEventId,
     setShowEvents, getShowEvents, findEventAt,
     copyEvent, pasteEvent, hasCopiedEvent,

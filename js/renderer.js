@@ -214,7 +214,7 @@ const Renderer = (function () {
       }
     }
 
-    // 绘制障碍标记
+    // 绘制障碍标记（红色描边 + 半透明填充菱形）
     if (showBarrier) {
       for (let ly = 0; ly < viewH; ly++) {
         for (let lx = 0; lx < viewW; lx++) {
@@ -223,15 +223,26 @@ const Renderer = (function () {
           if (!MapModule.assert(tx, ty)) continue;
           if (MapModule.getTileBarrier(tx, ty)) {
             const px = MapModule.tileToPixel(tx, ty).x - MapModule.tileToPixel(cameraX, cameraY).x - TILE_HALF_W;
-            const py = MapModule.tileToPixel(tx, ty).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
-            if (barrierImg) {
-              drawTileImage(ctx, px * zoom, py * zoom, barrierImg, zoom);
-            }
+            const py = MapModule.tileToPixel(tx, ty).y - MapModule.tileToPixel(cameraY, cameraY).y - TILE_HALF_H;
+            const cx = px * zoom + TILE_HALF_W * zoom;
+            const cy = py * zoom + TILE_HALF_H * zoom;
+            const hw = TILE_HALF_W * zoom;
+            const hh = TILE_HALF_H * zoom;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - hh);
+            ctx.lineTo(cx + hw, cy);
+            ctx.lineTo(cx, cy + hh);
+            ctx.lineTo(cx - hw, cy);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(255, 50, 50, 0.25)';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255, 50, 50, 0.85)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
           }
         }
       }
     }
-
     // 绘制事件标记
     if (showEvent && events && events.length > 0) {
       for (const ev of events) {
@@ -240,16 +251,24 @@ const Renderer = (function () {
         const py = MapModule.tileToPixel(ev.x, ev.y).y - MapModule.tileToPixel(cameraX, cameraY).y - TILE_HALF_H;
         if (px * zoom + TILE_W * zoom < 0 || py * zoom + TILE_H * zoom < 0 || px * zoom >= cw || py * zoom >= ch) continue;
 
-        // 事件标记图片（选中时闪烁动画，未选中时固定不透明）
-        if (eventImg) {
-          const isSelected = ev.id === selectedEventId;
-          ctx.save();
-          if (isSelected) {
-            const pulse = (Math.sin(Date.now() / 300) + 1) / 2;
-            ctx.globalAlpha = pulse;
-          }
-          drawTileImage(ctx, px * zoom, py * zoom, eventImg, zoom);
-          ctx.restore();
+        // 事件标记（黄橙色描边 + 半透明填充菱形）
+        const isSelectedEvent = ev.id === selectedEventId;
+        {
+          const ecx = px * zoom + TILE_HALF_W * zoom;
+          const ecy = py * zoom + TILE_HALF_H * zoom;
+          const ehw = TILE_HALF_W * zoom;
+          const ehh = TILE_HALF_H * zoom;
+          ctx.beginPath();
+          ctx.moveTo(ecx, ecy - ehh);
+          ctx.lineTo(ecx + ehw, ecy);
+          ctx.lineTo(ecx, ecy + ehh);
+          ctx.lineTo(ecx - ehw, ecy);
+          ctx.closePath();
+          ctx.fillStyle = isSelectedEvent ? 'rgba(255, 165, 0, 0.35)' : 'rgba(255, 165, 0, 0.20)';
+          ctx.fill();
+          ctx.strokeStyle = isSelectedEvent ? 'rgba(255, 165, 0, 0.95)' : 'rgba(255, 165, 0, 0.75)';
+          ctx.lineWidth = isSelectedEvent ? 2.0 : 1.5;
+          ctx.stroke();
         }
 
         // 事件人物图像（缩放 200%，底对齐，direction * frames + currFrame + 1 = 图片后缀）
@@ -348,7 +367,7 @@ const Renderer = (function () {
       ctx.stroke();
     }
 
-    // 绘制选中标记（所有选中的 tile，统一蓝色菱形边框）
+    // 绘制选中标记（所有选中的 tile，绿色描边 + 半透明填充菱形）
     if (selTiles && selTiles.length > 0) {
       for (const st of selTiles) {
         if (MapModule.assert(st.x, st.y)) {
@@ -364,7 +383,9 @@ const Renderer = (function () {
           ctx.lineTo(cx, cy + hh);
           ctx.lineTo(cx - hw, cy);
           ctx.closePath();
-          ctx.strokeStyle = 'rgba(100, 150, 255, 0.9)';
+          ctx.fillStyle = 'rgba(50, 220, 100, 0.20)';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(50, 220, 100, 0.90)';
           ctx.lineWidth = 1.5;
           ctx.stroke();
         }
